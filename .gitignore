@@ -1,10 +1,13 @@
 # ── Python ──
 __pycache__/
 *.py[cod]
+*.pyo
 *.egg-info/
 dist/
 build/
 *.egg
+*.manifest
+*.spec
 
 # ── Virtual Environment ──
 venv/
@@ -24,6 +27,13 @@ Thumbs.db
 # ── Environment ──
 .env
 .env.local
+*.key
+*.pem
+*.crt
+*.cert
+
+# ── Secrets (env-var-based, but keep dir clean) ──
+config/local.yaml
 
 # ── Output (scan results, reports, signal history) ──
 output/json/*
@@ -52,6 +62,9 @@ alibaba_risk_monitor/logs/*
 
 # ── Test artifacts ──
 .coverage
+.coverage.*
 htmlcov/
 .pytest_cache/
+*.coverage
+coverage/
 

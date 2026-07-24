@@ -15,11 +15,12 @@ Buy Stop V3 — 全市场A股扫描入口（生产版）
 """
 
 import argparse
+import os
 import sys
 import time
 import traceback
 
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from utils.logger import logger
 from scanner.universe import build_stock_pool

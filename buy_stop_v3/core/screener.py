@@ -37,7 +37,7 @@ from utils.helpers import get_market_cap_category
 from config.settings import BUY_STOP
 from data.types import KLine, BreakoutSignal, ScreenerResult
 from core.fundamental_scorer import (
-    FundamentalScorer, merge_fundamental_score, format_fundamental_details,
+    FundamentalScorer, format_fundamental_details,
 )
 from core.market_regime import MarketRegimeScorer, get_market_regime, MarketRegime
 from core.sector_scorer import SectorScorer, SectorScore

@@ -72,6 +72,4 @@ def fmt_pct(val: float) -> str:
 
 # ── 日期工具 ──
 
-def today_str() -> str:
-    import datetime
-    return datetime.date.today().isoformat()
+# (already handled inline with date.today().isoformat())
