@@ -185,6 +185,17 @@ Atlas-Trading-Agent/
 ├── CHANGELOG.md         # 版本历史
 ├── README.md            # 项目说明
 ├── requirements.txt     # 依赖
-├── LICENSE              # MIT License
 └── .gitignore
 ```
+
+## 工程管理方式
+
+| 方面 | 规范 |
+|------|------|
+| **版本控制** | Git (GitHub Private Repo)，`main` + `develop` 双分支 |
+| **Commit 规范** | `<type>: <描述>` — feat / fix / refactor / docs / test |
+| **Tag 规范** | `v<主>.<次>-<功能>` — 如 `v3.5-data-layer` |
+| **测试要求** | 每次修改需运行相关测试，报告通过 |
+| **文档同步** | 重大版本需同步 README / MEMORY / TASKS / CHANGELOG |
+| **禁止提交** | `*.db`, `logs/`, `output/`, `.env`, 密钥 |
+| **开发流程** | 见 `docs/development_workflow.md` |

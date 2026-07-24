@@ -132,4 +132,15 @@
 | cron 定时任务 | ✅ 正常运行 |
 | 日志系统 | ✅ 按日轮换 |
 | 代码风格 | ⚠️ 部分文件需 ruff 格式化 |
-| 文档完整性 | ✅ AGENT + MEMORY + README + CHANGELOG 齐全 |
+| 文档完整性 | ✅ AGENT + MEMORY + README + CHANGELOG + DEVELOPMENT_WORKFLOW 齐全 |
+```
+
+### 长期维护任务
+
+| 任务 | 频率 | 说明 |
+|------|:----:|------|
+| 运行所有测试 | 每次修改 | `python tests/test_*.py` 确保全部通过 |
+| 同步文档 | 每个版本 | MEMORY / TASKS / CHANGELOG / README 同步更新 |
+| 创建版本 Tag | 重大功能 | `git tag -a vX.Y-<name> -m "<描述>"` |
+| 检查 .gitignore | 新增文件类型 | 确保数据库/日志/输出不会被提交 |
+| 检查 CHANGELOG | 每个版本 | 新增/Fix/Optimize 分类清晰 |

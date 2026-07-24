@@ -102,3 +102,17 @@ Atlas Trading Agent 是一个 A 股 Buy Stop 趋势突破自动扫描系统。�
 - 系统日志输出到 `logs/` 目录（按日轮换）
 - 扫描结果输出到 `output/` 目录（JSON + Markdown + CSV）
 - 工程体检报告应写入 `docs/` 目录
+
+## Development Workflow
+
+本项目的开发规范定义在 `docs/development_workflow.md`，包含：
+
+- **AI Agent 工作流程** — 需求确认 → 读取规范 → 修改代码 → 测试 → 提交
+- **Git 规范** — commit 格式、分支策略、tag 规则
+- **测试要求** — 必须运行的测试套件和报告格式
+- **数据安全规则** — 禁止提交数据库、日志、输出文件
+- **交易策略保护规则** — 核心文件列表和修改限制
+- **文档维护规则** — 版本更新时需同步的文件
+- **发布流程** — 从开发到发布的完整流程
+
+**重要：任何代码修改前，请先阅读 `docs/development_workflow.md`。**
