@@ -1,0 +1,2 @@
+# 第三方依赖（均可选导入，项目核心代码仅使用 Python 标准库）
+feedparser>=6.0.0    # RSS 新闻解析（仅 Alibaba Risk Monitor 使用）
