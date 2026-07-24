@@ -27,6 +27,7 @@ from scanner.universe import build_stock_pool
 from scanner.batch_runner import BatchRunner
 from scanner.report import save_json, save_report, save_signal_history
 from utils.notifier import notify_scan
+from data.signal_database import save_signals
 
 
 def parse_args():
@@ -107,6 +108,11 @@ def main():
             logger.info(f"  报告: {md_path}")
             if summary.candidates:
                 logger.info(f"  历史CSV: {csv_path}")
+
+            # 写入信号数据库（仅当有候选时）
+            saved = save_signals(summary)
+            if saved:
+                logger.info(f"  信号DB: {saved} 条")
         except Exception as e:
             logger.error(f"保存报告失败: {e}")
 

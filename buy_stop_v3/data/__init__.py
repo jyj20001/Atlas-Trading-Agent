@@ -1,5 +1,5 @@
 """
-Buy Stop V3 — 数据模块
+Atlas Trading Agent — 数据模块
 """
 from data.http_client import get_json, HttpError
 from data.cninfo_fetcher import (
@@ -17,4 +17,7 @@ from data.market_fetcher import (
 )
 from data.types import (
     KLine, StockInfo, BreakoutSignal, PerformanceForecast, ScreenerResult
+)
+from data.database import (
+    load_klines, save_klines, get_latest_date, count_klines, get_db_stats,
 )
