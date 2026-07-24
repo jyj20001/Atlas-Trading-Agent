@@ -1,5 +1,41 @@
 # Atlas Trading Agent 变更日志
 
+## [v3.5 Stable] — 2026-07-24
+### 新增
+- SQLite 行情数据库（database.py）
+  - 自动建表、缓存写入、增量更新
+  - 4467 只 A 股全市场缓存完成
+  - 缓存命中后 1000 只仅 10.4 秒（较首次提速 40 倍）
+- 信号历史数据库（signal_database.py）
+  - 候选信号自动存储到 SQLite
+  - 按日期 / 股票代码查询
+  - price_5d / price_10d / price_20d 字段预留（未来统计用）
+- 双数据源路由（market_fetcher.py）
+  - 主板 / 创业板 → 腾讯主域（qfqday 前复权）
+  - 科创板 → 腾讯备用域（day 未复权）
+- WAF 检测和非 JSON 响应安全处理
+
+### 修复
+- 科创板（688xxx）无法获取 K 线 → 自动切换到备用数据源
+- 全市场扫描中 `logs/` pipe 缓冲导致进度日志不可见（非功能问题）
+- market_fetcher 中 `row[6]` 类型错误（dict → float）
+
+### 优化
+- 请求限速：单 API 间隔 0.3~0.7 秒
+- 失败重试策略：无效请求不重试（WAF / 空响应 / 非 JSON）
+- market.db 从初始 0KB 增长至 35MB（4467 只，252,806 根 K 线）
+- 全市场首次扫描 2766 秒（~46 分钟），后续日常 < 2 分钟
+
+### 阶段变更
+- 进入 **Production Observation Phase**（生产观察阶段）
+- 观察期：30 个交易日
+- 观察期内原则上不新增功能，仅限 bug 修复和稳定性优化
+
+### 文档
+- 永久开发规范（docs/development_workflow.md）
+- TASKS.md 增加 Future Roadmap 章节
+- AGENT.md 增加 "Development Workflow" 章节
+
 ## [v3.4-production] — 2026-07-24
 ### 新增
 - 全市场高频扫描引擎（BatchRunner），支持异常隔离和进度输出
