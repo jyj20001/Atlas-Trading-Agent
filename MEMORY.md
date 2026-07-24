@@ -216,3 +216,44 @@ Atlas-Trading-Agent/
 | **文档同步** | 重大版本需同步 README / MEMORY / TASKS / CHANGELOG |
 | **禁止提交** | `*.db`, `logs/`, `output/`, `.env`, 密钥 |
 | **开发流程** | 见 `docs/development_workflow.md` |
+
+---
+
+## Project Principles
+
+### Future Leak Prevention
+
+| 属性 | 值 |
+|------|------|
+| **Status** | Permanent |
+| **Version** | v3.5 Stable |
+| **Established** | 2026-07-24 |
+
+**规则描述：**
+
+所有历史回测必须采用历史快照。禁止使用实时数据计算历史日期。
+
+**禁止行为：**
+
+- ❌ 使用实时公告数据计算历史信号
+- ❌ 使用实时财报数据计算历史基本面评分
+- ❌ 使用实时龙虎榜数据判断历史资金流向
+- ❌ 使用实时指数成分股计算历史板块强度
+- ❌ 任何历史时点尚未公开的数据用于该时点
+
+**未来开发 Backtest 的前置条件：**
+
+当重新开发 Backtest 模块时，必须按以下顺序进行：
+
+1. **首先完成：Historical Snapshot Layer**
+   - 为基本面数据建立历史快照数据库
+   - 每条公告必须记录发布日期
+   - 查询时必须按 signal_date 过滤（announcement_date <= signal_date）
+2. **然后才允许开发回测**
+   - 任何回测结果若使用了未来数据，直接判定无效
+   - 回测报告必须声明数据来源和日期范围
+
+**例外：**
+
+- 实时扫描（Production Observation Phase 每日运行）使用实时数据是正常的，因为这是"当天的判断"
+- 本规则只约束历史回测/历史验证
