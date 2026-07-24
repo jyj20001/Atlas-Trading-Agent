@@ -68,3 +68,6 @@ htmlcov/
 *.coverage
 coverage/
 
+# ── Ad-hoc verification scripts ──
+scripts/hermes-verify-*
+
