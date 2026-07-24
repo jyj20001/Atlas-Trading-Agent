@@ -99,6 +99,38 @@
   - 查询时必须按 signal_date 过滤：announcement_date <= signal_date
   - 不能有 Look-ahead Bias
 
+### Historical Snapshot Layer（高优先级，Backtest 前置条件）
+| 属性 | 值 |
+|------|------|
+| **Priority** | High |
+| **Dependency** | 必须先于任何 Backtest 开发 |
+| **Status** | Pending（等待 Production Observation Phase 结束后评估） |
+
+**目的：**
+彻底避免历史回测中的 Look-ahead Bias（未来函数）。
+
+**包含模块：**
+
+| 子模块 | 用途 | 数据量预估 |
+|--------|------|:---------:|
+| □ Historical Announcement Snapshot | 公告历史快照（业绩预告/快报/合同/回购） | 每年 ~10 万条 |
+| □ Historical Fundamental Snapshot | 基本面指标历史（营收/利润/ROE 等） | 每年 ~5 万条 |
+| □ Historical Sector Snapshot | 板块指数成分股历史（用于板块强度评分回测） | 每年 ~3 万条 |
+| □ Historical Market Snapshot | 市场环境历史（三大指数 K 线历史快照） | 每年 ~750 根 |
+
+**开发顺序（必须遵守）：**
+
+1. 设计数据表结构（SQLite，带 publish_date 字段）
+2. 写数据抓取脚本（按日期爬取历史公告/指数数据）
+3. 写数据验证脚本（随机抽样验证历史日期数据正确性）
+4. 写回测查询接口（query_as_of(date) 返回截至该日期的数据快照）
+5. 集成到 BacktestEngine
+
+**验证标准：**
+- 对于任意历史日期 T，`query_as_of(T)` 返回的数据必须与 T 日实际可获取的数据一致
+- 随机抽取 10 个历史日期，人工验证数据准确性
+- 所有验证通过后，才能用于实际回测
+
 ---
 
 ## ⏸️ 暂停开发
