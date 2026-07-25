@@ -2,6 +2,11 @@
 
 > 当前状态追踪。已完成 ✅、进行中 🔄、未来计划 📋、已暂停 ⏸️、已归档 🗄️。
 
+**Version:** v3.5 Stable
+**Stage:** Production Observation Phase
+**Goal:** 30 Trading Days Observation
+**Strategy:** Frozen
+
 ---
 
 ## ✅ 已完成

@@ -16,11 +16,12 @@ Buy Stop V3 — 企业微信通知模块
 
 import json
 import os
-from datetime import date
+from datetime import date, datetime, timedelta
 from typing import Optional
 from urllib.request import Request, urlopen
 from urllib.error import URLError
 
+from config.settings import OBSERVATION
 from utils.logger import logger
 
 # ── 配置 ──
@@ -30,6 +31,41 @@ _WEBHOOK_URL = os.environ.get("WECOM_WEBHOOK_URL", "").strip()
 # 推送阈值
 _PUSH_SCORE_MIN = 95  # 只推送 A 级及以上
 _A_PLUS_MIN = 105     # A+ 阈值
+
+
+def _get_observation_day() -> int:
+    """计算当前观察期第几天（仅统计交易日，排除周末）。
+
+    从 OBSERVATION.START_DATE 开始算第 1 天，不超过 DURATION。
+    仅用于展示，不影响任何策略/评分/参数。
+    """
+    try:
+        start = datetime.strptime(OBSERVATION["START_DATE"], "%Y-%m-%d").date()
+    except (ValueError, KeyError):
+        return 0
+    today = date.today()
+    if today < start:
+        return 0
+
+    day_count = 0
+    current = start
+    while current <= today:
+        if current.weekday() < 5:  # 周一到周五
+            day_count += 1
+        current += timedelta(days=1)
+
+    return min(day_count, OBSERVATION.get("DURATION", 30))
+
+
+def _observation_header() -> str:
+    """生成 Observation 展示信息头部（纯展示，不影响任何逻辑）"""
+    day = _get_observation_day()
+    version = OBSERVATION.get("VERSION", "?")
+    return (
+        f"Atlas Trading Agent\n"
+        f"Version: {version}\n"
+        f"Observation: Day {day} / {OBSERVATION.get('DURATION', 30)}\n"
+    )
 
 
 def is_configured() -> bool:
@@ -81,6 +117,7 @@ def _build_no_candidate_msg(summary) -> str:
     """构建无候选时的消息"""
     lines = []
     lines.append(f"📊 Buy Stop 每日扫描报告\n")
+    lines.append(_observation_header())
     lines.append(f"**日期：**{date.today().isoformat()}")
     lines.append(f"**扫描数量：**{summary.total} 只")
     lines.append(f"**候选数量：**0")
@@ -94,6 +131,7 @@ def _build_candidate_msg(summary) -> str:
     """构建有候选时的消息（仅A级及以上）"""
     lines = []
     lines.append(f"🔥 Buy Stop 每日扫描报告\n")
+    lines.append(_observation_header())
     lines.append(f"**日期：**{date.today().isoformat()}")
     lines.append(f"**扫描数量：**{summary.total} 只")
     lines.append(f"**候选数量：**{len(summary.candidates)} 只")

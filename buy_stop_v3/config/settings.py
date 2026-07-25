@@ -69,6 +69,14 @@ BUY_STOP = {
     },
 }
 
+# ── 系统信息（仅展示，不影响策略/评分/参数） ──
+OBSERVATION = {
+    "VERSION": "v3.5 Stable",
+    "START_DATE": "2026-07-24",       # Production Observation Phase 开始日期
+    "DURATION": 30,                     # 观察期总天数（交易日）
+    "LABEL": "Production Observation Phase",
+}
+
 # ── 日志 ──
 LOG = {
     "LEVEL": "INFO",

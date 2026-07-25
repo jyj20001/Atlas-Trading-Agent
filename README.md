@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.4--production-blue" alt="版本" />
+  <img src="https://img.shields.io/badge/version-3.5--stable-blue" alt="版本" />
   <img src="https://img.shields.io/badge/python-3.11%2B-green" alt="Python" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/status-production-brightgreen" alt="Status" />
@@ -19,8 +19,22 @@
 
 ---
 
+## 当前状态
+
+| 属性 | 值 |
+|------|-----|
+| **Version** | v3.5 Stable |
+| **Stage** | Production Observation Phase |
+| **Goal** | 30 Trading Days Observation |
+| **Strategy** | Frozen |
+
+> 当前处于 30 个交易日生产观察期，原则上不新增功能，仅限 Bug 修复和稳定性优化。
+
+---
+
 ## 目录
 
+- [当前状态](#当前状态)
 - [功能模块](#功能模块)
 - [系统架构](#系统架构)
 - [评分体系](#评分体系)
