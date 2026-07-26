@@ -39,6 +39,10 @@ config/local.yaml
 output/
 output/*
 
+# ── Generated data files ──
+portfolio_equity_curve.csv
+signals_cache.json
+
 # ── Logs ──
 logs/
 logs/*

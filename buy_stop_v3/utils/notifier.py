@@ -68,6 +68,27 @@ def _observation_header() -> str:
     )
 
 
+def _health_panel(summary) -> str:
+    """生成系统健康状态面板（纯展示，不影响任何逻辑）"""
+    health = summary.health_status if hasattr(summary, 'health_status') else "UNKNOWN"
+    emoji = {"HEALTHY": "✅", "DEGRADED": "⚠️", "UNHEALTHY": "❌", "UNKNOWN": "❓"}.get(health, "❓")
+    dc = summary.data_completeness * 100 if hasattr(summary, 'data_completeness') else 100
+    return (
+        f"\n**系统健康：**{emoji} {health}\n"
+        f"**股票总数：**{summary.total} 只\n"
+        f"**成功数量：**{summary.total - summary.errors} 只\n"
+        f"**失败数量：**{summary.errors} 只\n"
+        f"**数据完整率：**{dc:.1f}%\n"
+    )
+
+
+def _is_data_anomaly(summary) -> bool:
+    """判断是否存在数据异常（高错误率 or 数据完整率过低）"""
+    if not hasattr(summary, 'error_rate') or not hasattr(summary, 'data_completeness'):
+        return False
+    return summary.error_rate > 0.10 or summary.data_completeness < 0.90
+
+
 def is_configured() -> bool:
     """检查企业微信Webhook是否已配置"""
     return bool(_WEBHOOK_URL)
@@ -116,14 +137,22 @@ def _send_markdown(markdown_text: str) -> bool:
 def _build_no_candidate_msg(summary) -> str:
     """构建无候选时的消息"""
     lines = []
-    lines.append(f"📊 Buy Stop 每日扫描报告\n")
+    anomaly = _is_data_anomaly(summary)
+    prefix = "⚠️" if anomaly else "📊"
+    lines.append(f"{prefix} Buy Stop 每日扫描报告\n")
     lines.append(_observation_header())
     lines.append(f"**日期：**{date.today().isoformat()}")
     lines.append(f"**扫描数量：**{summary.total} 只")
     lines.append(f"**候选数量：**0")
+    lines.append(_health_panel(summary))
     lines.append(f"")
-    lines.append(f"今日无符合Buy Stop条件股票。")
-    lines.append(f"当前市场环境下，策略未发现符合条件的突破机会。")
+
+    if anomaly:
+        lines.append(f"⚠️ **注意：数据异常率高，无候选可能因数据质量问题导致。**")
+        lines.append(f"请检查数据源和网络连接。")
+    else:
+        lines.append(f"今日无符合Buy Stop条件股票。")
+        lines.append(f"当前市场环境下，策略未发现符合条件的突破机会。")
     return "\n".join(lines)
 
 
@@ -135,6 +164,7 @@ def _build_candidate_msg(summary) -> str:
     lines.append(f"**日期：**{date.today().isoformat()}")
     lines.append(f"**扫描数量：**{summary.total} 只")
     lines.append(f"**候选数量：**{len(summary.candidates)} 只")
+    lines.append(_health_panel(summary))
     lines.append(f"")
 
     # 筛选 A 级及以上

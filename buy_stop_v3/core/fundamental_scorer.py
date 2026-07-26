@@ -1,21 +1,16 @@
-"""
-Buy Stop V3 — 基本面评分模块
+"""Buy Stop V3 — 基本面评分模块 (v2: Snapshot 数据源)
 
-从巨潮资讯抓取公告，识别并评分：
+从 announcement_snapshot 表读取公告数据，识别并评分：
   1. 业绩预增（净利润增长 > 50%）
   2. 业绩快报（超预期/扭亏）
   3. 重大合同（金额 / 营收占比）
   4. 回购 / 增持
 
-评分范围：0~15 分（占用screener预留的板块10分 + 额外加分）
+评分范围：0~15 分
 
-合并到 StockScreener 方式：
-  fundamental_scorer 返回 dict，screener 的 _scorer 中加上 score_fundamental
-
-典型用法：
-  from core.fundamental_scorer import FundamentalScorer
-  fs = FundamentalScorer()
-  score = fs.score_stock("000977", "浪潮信息")
+变更历史:
+  v1: 直接请求巨潮 API (N+1 问题)
+  v2: 读取 announcement_snapshot 快照表，扫描阶段零网络请求
 """
 
 import re
@@ -23,43 +18,30 @@ from datetime import date, timedelta
 from typing import Optional
 
 from utils.logger import logger
-from data.cninfo_fetcher import (
-    search_performance_forecasts,
-    search_performance_reports,
-    search_stock_announcements,
-)
+from data.snapshot_query import query_announcements_as_of
 
 
 # ── 关键词字典 ──
 
-# 预增关键词
 _PRE_INCREASE_KEYWORDS = [
     "预增", "大幅上升", "大幅增长", "同向上升",
     "业绩大增", "利润大增", "净利润增长",
 ]
 
-# 扭亏关键词
 _TURNAROUND_KEYWORDS = [
     "扭亏", "扭亏为盈", "实现盈利",
 ]
 
-# 预减/预亏关键词
 _PRE_DECREASE_KEYWORDS = [
     "预减", "预亏", "首亏", "大幅下降",
     "业绩下滑", "利润下滑", "业绩亏损",
 ]
 
-# 重大合同关键词
-_MAJOR_CONTRACT_KEYWORDS = [
-    "重大合同", "中标", "中标公告", "签订合同",
-    "重大协议", "战略合作", "重大订单",
-]
 
-# 回购/增持关键词
-_BUYBACK_KEYWORDS = [
-    "回购", "股份回购", "增持", "增持计划",
-    "回购报告书", "增持公告",
-]
+# ── 公告类型 → snapshot announce_type 映射 ──
+
+_TYPE_FORECAST = "performance_forecast"
+_TYPE_REPORT = "performance_report"
 
 
 # ──────────────────────────────────────────────
@@ -67,40 +49,43 @@ _BUYBACK_KEYWORDS = [
 # ──────────────────────────────────────────────
 
 class FundamentalScorer:
-    """
-    基本面评分器
-
-    每次调用会访问巨潮资讯网获取最新公告数据，请合理控制调用频率。
-    """
+    """基本面评分器 — 读取 announcement_snapshot 表"""
 
     def __init__(self, lookback_days: int = 30):
-        """
-        参数:
-            lookback_days: 搜索过去多少天的公告（默认30天）
-        """
         self.lookback = lookback_days
         self._start = (date.today() - timedelta(days=lookback_days)).isoformat()
         self._end = date.today().isoformat()
+        # 内存缓存：按关键词存储已读取的快照数据（消除N+1）
+        self._batch_cache: dict[str, list[dict]] = {}
+
+    def _set_signal_date(self, signal_date: str):
+        """设置信号日期（回测模式用），更新查询范围"""
+        from datetime import datetime as dt
+        sd = dt.strptime(signal_date, "%Y-%m-%d").date()
+        self._start = (sd - timedelta(days=self.lookback)).isoformat()
+        self._end = signal_date
+        self._batch_cache.clear()
+
+    # ── 从 snapshot 读取（0 网络请求） ──
+
+    def _read_from_snapshot(self, announce_type: str) -> list[dict]:
+        """从 announcement_snapshot 读取指定类型公告，结果缓存复用"""
+        if announce_type in self._batch_cache:
+            return self._batch_cache[announce_type]
+
+        rows = query_announcements_as_of(
+            self._end,
+            announce_type=announce_type,
+        )
+        # 过滤日期范围
+        results = [r for r in rows if r.get("publish_time", "")[:10] >= self._start]
+        self._batch_cache[announce_type] = results
+        logger.debug(f"snapshot [{announce_type}]: {len(results)} 条")
+        return results
 
     # ── 对外主接口 ──
 
     def score_stock(self, code: str, name: str = "") -> dict:
-        """
-        对单只股票进行基本面评分
-
-        参数:
-            code: 股票代码
-            name: 股票名称（可选，仅用于日志）
-
-        返回:
-            {
-                "score": 0~15,
-                "details": [str, ...],  # 评分理由
-                "flags": [str, ...],    # 风险标记
-                "forecasts": [...],     # 匹配到的业绩预告
-                "contracts": [...],     # 匹配到的重大合同
-            }
-        """
         result = {
             "score": 0,
             "details": [],
@@ -109,173 +94,107 @@ class FundamentalScorer:
             "contracts": [],
         }
 
-        # 1. 业绩预告评分（最多 +8 分）
         self._score_forecast(code, result)
-
-        # 2. 业绩快报评分（最多 +5 分）
         self._score_report(code, result)
-
-        # 3. 重大合同评分（最多 +4 分）
         self._score_major_contract(code, result)
-
-        # 4. 回购增持加分（最多 +2 分）
         self._score_buyback(code, result)
-
-        # 总分限制 0~15
         result["score"] = max(0, min(15, result["score"]))
-
         return result
 
-    # ── 1. 业绩预告评分 ──
+    # ── 1. 业绩预告评分（最多 +8 分） ──
 
     def _score_forecast(self, code: str, result: dict) -> None:
-        """搜索业绩预告并评分"""
-        try:
-            forecasts = search_performance_forecasts(
-                start_date=self._start, end_date=self._end, page=1, page_size=30
-            )
-        except Exception as e:
-            logger.debug(f"业绩预告搜索失败: {e}")
+        forecasts = [r for r in self._read_from_snapshot(_TYPE_FORECAST)
+                     if r["code"] == code]
+        if not forecasts:
             return
 
-        # 过滤属于本股票的
-        stock_forecasts = [f for f in forecasts if f.code == code]
-        if not stock_forecasts:
-            return
+        result["forecasts"] = forecasts
 
-        result["forecasts"] = stock_forecasts
-
-        for pf in stock_forecasts:
-            title_info = self._classify_forecast(pf)
+        for row in forecasts:
+            title_info = self._classify_forecast_from_dict(row)
 
             if title_info["type"] == "预增":
-                # 根据增长幅度评分
-                chg = pf.profit_change_pct
+                chg = self._profit_change_mid(row)
                 if chg is not None and chg >= 100:
                     result["score"] += 8
-                    result["details"].append(
-                        f"业绩预增{chg:.0f}% (+8)"
-                    )
+                    result["details"].append(f"业绩预增{chg:.0f}% (+8)")
                 elif chg is not None and chg >= 50:
                     result["score"] += 6
-                    result["details"].append(
-                        f"业绩预增{chg:.0f}% (+6)"
-                    )
+                    result["details"].append(f"业绩预增{chg:.0f}% (+6)")
                 else:
                     result["score"] += 4
-                    result["details"].append(
-                        f"业绩预增（幅度未明确）(+4)"
-                    )
+                    result["details"].append("业绩预增（幅度未明确）(+4)")
 
             elif title_info["type"] == "扭亏":
                 result["score"] += 5
                 result["details"].append("扭亏为盈 (+5)")
 
             elif title_info["type"] == "预减":
-                chg = pf.profit_change_pct
+                chg = self._profit_change_mid(row)
                 if chg is not None and chg <= -50:
                     result["flags"].append(f"业绩预减{chg:.0f}%")
                 else:
                     result["flags"].append("业绩预减")
 
-    # ── 2. 业绩快报评分 ──
+    # ── 2. 业绩快报评分（最多 +5 分） ──
 
     def _score_report(self, code: str, result: dict) -> None:
-        """搜索业绩快报并评分"""
-        try:
-            reports = search_performance_reports(
-                start_date=self._start, end_date=self._end, page=1, page_size=30
-            )
-        except Exception as e:
-            logger.debug(f"业绩快报搜索失败: {e}")
+        reports = [r for r in self._read_from_snapshot(_TYPE_REPORT)
+                   if r["code"] == code]
+        if not reports:
             return
-
-        stock_reports = [r for r in reports if r.code == code]
-        if not stock_reports:
-            return
-
-        # 快报本身说明公司已披露正式财务数据，给予正面评分
-        for rp in stock_reports:
+        for rp in reports:
             result["score"] += 3
-            result["details"].append(f"发布业绩快报 (+3)")
+            result["details"].append("发布业绩快报 (+3)")
 
-    # ── 3. 重大合同评分 ──
+    # ── 3. 重大合同评分（最多 +4 分） ──
 
     def _score_major_contract(self, code: str, result: dict) -> None:
-        """搜索重大合同公告并评分"""
-        try:
-            contracts = search_stock_announcements(
-                stock_code=code,
-                keyword="重大合同",
-                start_date=self._start,
-                end_date=self._end,
-            )
-        except Exception as e:
-            logger.debug(f"重大合同搜索失败: {e}")
-            return
-
-        if not contracts:
-            # 也试一下"中标"关键词
-            try:
-                contracts = search_stock_announcements(
-                    stock_code=code,
-                    keyword="中标",
-                    start_date=self._start,
-                    end_date=self._end,
-                )
-            except Exception:
-                return
-
+        contracts = [a for a in self._read_from_snapshot("major_contract")
+                     if a["code"] == code]
         if contracts:
-            # 取最新一条
             latest = contracts[0]
             title = latest.get("title", "")
             result["contracts"].append(latest)
-
             result["score"] += 4
             result["details"].append(f"重大合同/中标: {title[:40]}... (+4)")
 
-    # ── 4. 回购/增持评分 ──
+    # ── 4. 回购/增持评分（最多 +2 分） ──
 
     def _score_buyback(self, code: str, result: dict) -> None:
-        """搜索回购/增持公告并评分"""
-        try:
-            buybacks = search_stock_announcements(
-                stock_code=code,
-                keyword="回购",
-                start_date=self._start,
-                end_date=self._end,
-            )
-        except Exception as e:
-            logger.debug(f"回购搜索失败: {e}")
-            return
-
+        buybacks = [a for a in self._read_from_snapshot("buyback")
+                    if a["code"] == code]
         if buybacks:
             result["score"] += 2
-            result["details"].append(f"股份回购/增持公告 (+2)")
+            result["details"].append("股份回购/增持公告 (+2)")
 
-    # ── 辅助：预告分类 ──
+    # ── 辅助 ──
 
     @staticmethod
-    def _classify_forecast(pf) -> dict:
-        """
-        根据 PerformanceForecast 的标题信息分类
-        返回: {"type": "预增"|"扭亏"|"预减"|"预警"|"其他"}
-        """
-        title_text = f"{pf.report_type} {pf.forecast_type}"
+    def _profit_change_mid(row: dict) -> Optional[float]:
+        """从 snapshot dict 估算利润变动中值"""
+        low = row.get("change_pct_lower")
+        high = row.get("change_pct_upper")
+        if low is not None and high is not None:
+            return (low + high) / 2
+        return low or high
 
-        # 检查净利润变动方向
-        chg = pf.profit_change_pct
+    @staticmethod
+    def _classify_forecast_from_dict(row: dict) -> dict:
+        """根据 snapshot dict 分类预告类型"""
+        report_type = row.get("report_type", "")
+        forecast_type = row.get("forecast_type", "")
+        title = f"{report_type} {forecast_type}"
+        chg = FundamentalScorer._profit_change_mid(row)
 
-        # 从 report_type 推断
-        if any(kw in title_text for kw in _PRE_INCREASE_KEYWORDS):
+        if any(kw in title for kw in _PRE_INCREASE_KEYWORDS):
             return {"type": "预增"}
-        if any(kw in title_text for kw in _TURNAROUND_KEYWORDS):
+        if any(kw in title for kw in _TURNAROUND_KEYWORDS):
             return {"type": "扭亏"}
-        if any(kw in title_text for kw in _PRE_DECREASE_KEYWORDS):
+        if any(kw in title for kw in _PRE_DECREASE_KEYWORDS):
             return {"type": "预减"}
 
-        # 如果标题无法判定，尝试从数据推断
         if chg is not None:
             if chg >= 30:
                 return {"type": "预增"}
@@ -286,58 +205,35 @@ class FundamentalScorer:
 
 
 # ──────────────────────────────────────────────
-# 工具函数：合并到 StockScreener 评分
+# 工具函数（与 v1 接口完全兼容）
 # ──────────────────────────────────────────────
 
 def merge_fundamental_score(screener_score: dict,
                              fundamental_score: dict) -> dict:
-    """
-    将基本面评分合并到 screener 的评分 dict 中
-
-    参数:
-        screener_score: StockScreener._scorer() 返回的 dict
-            {"trend": 20, "structure": 25, ..., "total": 75}
-        fundamental_score: FundamentalScorer.score_stock() 返回的 dict
-            {"score": 8, "details": [...], ...}
-
-    返回:
-        更新后的 dict（包含新的 score_fundamental 和调整后的 total）
-    """
     new_score = dict(screener_score)
     f_score = fundamental_score.get("score", 0)
-
     new_score["fundamental"] = f_score
     new_score["total"] = new_score.get("total", 0) + f_score
-
     return new_score
 
 
 def format_fundamental_details(fundamental_score: dict) -> str:
-    """格式化基本面详情为可读字符串"""
     parts = []
     for d in fundamental_score.get("details", []):
         parts.append(d)
     for f in fundamental_score.get("flags", []):
         parts.append(f"⚠️ {f}")
-
     if not parts:
         return "无近期基本面信号"
-
     return "; ".join(parts)
 
-
-# ──────────────────────────────────────────────
-# 主入口（直接运行做演示）
-# ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     import sys
     code = sys.argv[1] if len(sys.argv) > 1 else "000977"
     name = sys.argv[2] if len(sys.argv) > 2 else ""
-
     fs = FundamentalScorer(lookback_days=90)
     result = fs.score_stock(code, name)
-
     print(f"\n📊 基本面评分 — {code} {name}")
     print(f"{'='*50}")
     print(f"  总分: {result['score']}/15")
@@ -347,6 +243,6 @@ if __name__ == "__main__":
     for f in result.get("flags", []):
         print(f"    ⚠️ {f}")
     if not result["details"] and not result["flags"]:
-        print(f"    无近期基本面信号")
+        print("    无近期基本面信号")
     print(f"  预告/快报: {len(result.get('forecasts', []))} 条")
     print(f"  合同公告: {len(result.get('contracts', []))} 条")

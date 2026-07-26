@@ -13,6 +13,7 @@ import traceback
 from datetime import date, datetime
 from typing import Optional
 
+from config.settings import MIN_LISTING_DAYS
 from utils.logger import logger
 from data.market_fetcher import fetch_klines
 from data.types import StockInfo
@@ -90,6 +91,38 @@ class ScanSummary:
     def elapsed(self) -> float:
         return self.end_time - self.start_time
 
+    @property
+    def scanned_successfully(self) -> int:
+        """成功完成扫描的股票数（未抛出异常）"""
+        return self.total - self.errors
+
+    @property
+    def data_completeness(self) -> float:
+        """数据完整率：成功扫描数 / 总数 (0.0~1.0)"""
+        if self.total == 0:
+            return 1.0
+        return round(self.scanned_successfully / self.total, 4)
+
+    @property
+    def error_rate(self) -> float:
+        """异常率：错误数 / 总数 (0.0~1.0)"""
+        if self.total == 0:
+            return 0.0
+        return round(self.errors / self.total, 4)
+
+    @property
+    def health_status(self) -> str:
+        """系统健康状态"""
+        if self.total == 0:
+            return "UNKNOWN"
+        er = self.error_rate
+        if er < 0.05:
+            return "HEALTHY"
+        elif er < 0.20:
+            return "DEGRADED"
+        else:
+            return "UNHEALTHY"
+
     def sort_candidates(self):
         stage_rank = {"EARLY_BREAKOUT": 0, "TRENDING": 1, "EXTENDED": 2, "CLIMAX": 3}
         self.candidates.sort(key=lambda r: (
@@ -106,8 +139,8 @@ class ScanSummary:
 
 def _prefilter(symbol: str, name: str, klines) -> Optional[str]:
     """快速预过滤。返回 None=通过，str=淘汰原因"""
-    if not klines or len(klines) < 200:
-        return "K线不足200天"
+    if not klines or len(klines) < MIN_LISTING_DAYS:
+        return f"K线不足{MIN_LISTING_DAYS}天"
 
     latest = klines[-1]
     closes = [k.close for k in klines]
@@ -155,7 +188,7 @@ def _fetch_with_retry(code: str, days: int = 250, max_retries: int = 3) -> Optio
     for attempt in range(1, max_retries + 1):
         try:
             klines = fetch_klines(code, days=days)
-            if klines and len(klines) >= 200:
+            if klines and len(klines) >= MIN_LISTING_DAYS:
                 return klines
             if attempt < max_retries:
                 time.sleep(1)
@@ -255,7 +288,9 @@ class BatchRunner:
                     f"{len(summary.candidates)}候选 "
                     f"/ {summary.skipped}跳过 "
                     f"/ {summary.errors}错误 "
-                    f"/ {summary.elapsed:.1f}秒")
+                    f"/ {summary.elapsed:.1f}秒 "
+                    f"/ 健康:{summary.health_status} "
+                    f"/ 完整率:{summary.data_completeness*100:.1f}%")
 
         return summary
 

@@ -4,6 +4,7 @@ Buy Stop V3 — 回测指标计算
 
 from dataclasses import dataclass, field
 from typing import Optional
+import math
 
 
 @dataclass
@@ -32,6 +33,8 @@ class BacktestMetrics:
     avg_bars_held: float = 0.0       # 平均持仓天数
     max_consecutive_losses: int = 0  # 最大连续亏损次数
     total_cost_pct: float = 0.0      # 总交易成本%
+    sharpe_ratio: float = 0.0        # 夏普比率
+    annualized_return: float = 0.0   # 年化收益率%
 
     # 分组统计
     score_groups: dict = field(default_factory=dict)
@@ -78,6 +81,24 @@ class BacktestMetrics:
 
         # 总交易成本
         self.total_cost_pct = round(n * cost_per_trade_pct * 2, 2)
+
+        # 夏普比率 = (平均收益 - 无风险利率) / 收益标准差
+        # 简化：无风险利率按 2% 年化，每笔按平均持仓折算
+        if n > 1:
+            returns = [t.pnl_pct for t in trades]
+            avg_r = sum(returns) / n
+            risk_free_per_trade = 2.0 / 365 * self.avg_bars_held  # 2%年化
+            variance = sum((r - avg_r) ** 2 for r in returns) / (n - 1)
+            std_dev = math.sqrt(variance) if variance > 0 else 1.0
+            self.sharpe_ratio = round((avg_r - risk_free_per_trade) / std_dev, 2)
+
+        # 年化收益率 = (1 + 总收益率)^(365/总持仓天数) - 1
+        total_bars = sum(t.bars_held for t in trades)
+        if total_bars > 0:
+            annual_factor = 365 / total_bars
+            self.annualized_return = round(
+                ((1 + self.total_pnl_pct / 100) ** annual_factor - 1) * 100, 2
+            )
 
         # 按评分分组
         groups = {}

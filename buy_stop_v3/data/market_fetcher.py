@@ -31,7 +31,7 @@ import math
 import subprocess
 import random
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Optional
 from dataclasses import dataclass
 
@@ -40,7 +40,7 @@ from data.types import KLine, StockInfo
 from data.http_client import get_json, get_text, HttpError
 from data.database import (
     load_klines, save_klines, get_latest_date, count_klines,
-    get_db_stats, KLine_to_dict,
+    get_latest_market_trade_date, get_db_stats, KLine_to_dict, _db,
 )
 
 # ── API 端点 ──
@@ -121,51 +121,60 @@ def fetch_klines(code: str, days: int = 250,
                  end_date: Optional[str] = None,
                  use_cache: bool = True) -> Optional[list[KLine]]:
     """
-    获取个股日K线（带数据库缓存和数据源路由）
+    获取个股日K线
 
-    参数:
-        code: 股票代码
-        days: 需要的最少K线数
-        end_date: 忽略（API返回最新数据）
-        use_cache: 是否启用SQLite缓存（默认启用）
+    **读取优先级:**
+      1. SQLite 数据库（本地缓存）
+      2. 数据库不足时 → Provider Chain（Futu → EastMoney → Tencent）
+      3. 获取后自动写入数据库
 
-    返回:
-        list[KLine] 或 None
+    数据库是唯一的 Single Source of Truth。
+    策略层禁止直接调用 Provider。
     """
-    # ── 检查缓存 ──
+    # ── 1. 先查数据库（不依赖 API）──
     if use_cache:
         cached = load_klines(code, limit=days)
         latest_db = get_latest_date(code)
-        today_str = date.today().isoformat()
+        latest_market = get_latest_market_trade_date()
 
-        # 如果缓存足够（≥days根）且包含今日或昨日数据，直接返回
-        if len(cached) >= days:
-            if latest_db and (latest_db == today_str or
-                              latest_db == (date.today() - timedelta(days=1)).isoformat()):
-                logger.debug(f"{code}: 缓存命中 ({len(cached)}根, 最新{latest_db})")
+        # 缓存足够且包含最新市场日 → 直接返回（零网络）
+        if len(cached) >= days and latest_db and latest_market:
+            if latest_db == latest_market:
                 return _dicts_to_klines(cached)
 
-    # ── 选择数据源 ──
-    is_kechuang = code.startswith(_KECHUANG_PREFIX)
-    is_beijing = code.startswith(_BEIJING_PREFIX)
+        # 缓存不足但有一些数据 → 返回已有数据（不强制网络请求）
+        if len(cached) >= min(days, 200):
+            return _dicts_to_klines(cached)
 
-    if is_kechuang or is_beijing:
-        # 科创板/北交所 → 腾讯备用域（主域无复权数据）
-        klines = _fetch_tencent_api(code, days, use_backup=True)
-        source = "tencent_backup"
-    else:
-        # 主板/创业板 → 腾讯主域，失败时切备用
-        klines = _fetch_tencent_with_fallback(code, days)
+    # ── 2. 数据库不足 → Provider Chain ──
+    from data.kline_providers import fetch_from_chain
+    from data.kline_normalizer import normalized_to_kline, merge_and_dedup
 
-    if not klines:
-        return None
+    nklines = fetch_from_chain(code,
+                                max_count=max(days, 2000),
+                                min_bars=min(days, 200))
+    if nklines:
+        klines = [normalized_to_kline(nk) for nk in nklines]
 
-    # ── 写入缓存 ──
-    if use_cache and klines:
-        source_label = "tencent_backup" if (is_kechuang or is_beijing) else "tencent_main"
-        save_klines(code, klines, source=source_label)
+        # ── 3. 写入数据库 ──
+        if use_cache:
+            existing = load_klines(code, limit=9999)
+            merged = merge_and_dedup(existing, nklines)
+            # 全量替换（保持原子性）
+            _db.conn.execute("DELETE FROM daily_klines WHERE code = ?", (code,))
+            save_klines(code, merged,
+                        source=nklines[0].source,
+                        adjust_type=nklines[0].adjust_type)
 
-    return klines
+        return klines
+
+    # ── 4. Provider 全部失败 → 返回已有缓存数据 ──
+    if use_cache:
+        cached = load_klines(code, limit=days)
+        if cached:
+            return _dicts_to_klines(cached)
+
+    return None
 
 
 def _fetch_tencent_with_fallback(code: str, days: int) -> Optional[list[KLine]]:
@@ -242,7 +251,7 @@ def _fetch_tencent_api(code: str, days: int,
         date_str = str(row[0])
         try:
             amount_raw = row[6] if len(row) > 6 else 0
-            if isinstance(amount_raw, dict):
+            if not isinstance(amount_raw, (int, float)):
                 amount_raw = 0
             k = KLine(
                 date=date_str,
@@ -271,10 +280,11 @@ def _safe_curl(url: str, timeout: int = 10) -> Optional[str]:
     try:
         cmd = [
             "curl", "-s", "--max-time", str(timeout),
+            "--connect-timeout", str(max(5, timeout // 2)),
             "--noproxy", "*",
             "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                    "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "-H", "Referer: https://quote.eastmoney.com/",
+            "-H", "Referer: https://web.ifzq.gtimg.cn/",
             url,
         ]
         result = subprocess.run(

@@ -77,6 +77,10 @@ OBSERVATION = {
     "LABEL": "Production Observation Phase",
 }
 
+# ── 股票池过滤参数 ──
+MIN_LISTING_DAYS = 250  # 最低上市天数（K线根数阈值）
+MIN_AMOUNT = 10_000_000  # 最低成交额（元）
+
 # ── 日志 ──
 LOG = {
     "LEVEL": "INFO",

@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/version-3.5--stable-blue" alt="版本" />
+  <img src="https://img.shields.io/badge/version-1.0.0--stable-blue" alt="版本" />
   <img src="https://img.shields.io/badge/python-3.11%2B-green" alt="Python" />
   <img src="https://img.shields.io/badge/license-MIT-green" alt="License" />
   <img src="https://img.shields.io/badge/status-production-brightgreen" alt="Status" />
@@ -23,12 +23,12 @@
 
 | 属性 | 值 |
 |------|-----|
-| **Version** | v3.5 Stable |
-| **Stage** | Production Observation Phase |
-| **Goal** | 30 Trading Days Observation |
-| **Strategy** | Frozen |
+| **Version** | v1.0.0 Stable Baseline |
+| **Stage** | Production — Version Freeze |
+| **Goal** | Portfolio Backtesting Infrastructure |
+| **Strategy** | Frozen — Buy Stop core sealed |
 
-> 当前处于 30 个交易日生产观察期，原则上不新增功能，仅限 Bug 修复和稳定性优化。
+> **v1.0.0 Stable Baseline Release** — Buy Stop 策略核心已冻结，PortfolioEngine 组合回测基础设施就绪。后续仅限数据层扩展和 Bug 修复。
 
 ---
 
@@ -58,7 +58,11 @@
 | 模块 | 文件 | 功能 |
 |------|------|------|
 | **筛选引擎** | `buy_stop_v3/core/screener.py` | 130分五维评分，Buy Stop 信号生成 |
-| **行情获取** | `buy_stop_v3/data/market_fetcher.py` | 腾讯日K线 + 新浪股票列表 |
+| **行情获取** | `buy_stop_v3/data/market_fetcher.py` | Provider Chain 架构（Futu→东方财富→腾讯） |
+| **历史行情 DB** | `buy_stop_v3/data/database.py` | SQLite 全量 K 线数据库，单数据源 |
+| **K线 Provider 链** | `buy_stop_v3/data/kline_providers/` | Futu OpenAPI / 东方财富 / 腾讯 三层 fallback |
+| **Futu OpenD** | `buy_stop_v3/data/kline_providers/futu_provider.py` | 全量 2006~2026 历史日 K（需 OpenD 进程） |
+| **K线标准化** | `buy_stop_v3/data/kline_normalizer.py` | 统一输出格式 (code/date/OHLC/vol/amount) |
 | **基本面数据** | `buy_stop_v3/data/cninfo_fetcher.py` | 巨潮资讯业绩预告/快报/公告 |
 | **HTTP 客户端** | `buy_stop_v3/data/http_client.py` | curl 子进程，零第三方依赖 |
 | **突破生命周期** | `buy_stop_v3/core/breakout_stage.py` | EARLY/TRENDING/EXTENDED/CLIMAX 四阶段识别 |
@@ -66,6 +70,7 @@
 | **板块强度** | `buy_stop_v3/core/sector_scorer.py` | 30+行业板块，个股超收益评分 |
 | **基本面评分** | `buy_stop_v3/core/fundamental_scorer.py` | 预增/快报/合同/回购时间衰减评分 |
 | **批量扫描** | `buy_stop_v3/scanner/batch_runner.py` | 全市场扫描，异常隔离，重试 |
+| **组合回测引擎** | `buy_stop_v3/backtest/portfolio_engine.py` | 时间驱动组合回测，T+1 资金管理 |
 | **股票池** | `buy_stop_v3/scanner/universe.py` | ST/北交所过滤，上市天数判断 |
 | **报告生成** | `buy_stop_v3/scanner/report.py` | JSON + Markdown + CSV 输出 |
 | **企业微信通知** | `buy_stop_v3/utils/notifier.py` | A+ 级推送详情 |

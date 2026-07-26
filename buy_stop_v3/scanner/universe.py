@@ -4,7 +4,7 @@ Buy Stop V3 — 股票池模块
 从 market_fetcher 获取全市场A股，执行：
   1. 删除ST股票
   2. 删除北交所
-  3. 删除上市不足250天
+  3. 删除上市不足天数（代码前缀近似判断 + K线数量双重过滤）
   4. 删除成交额过低
   5. 保留沪深主板+创业板+科创板
 """
@@ -15,14 +15,13 @@ from typing import Optional
 from utils.logger import logger
 from data.types import StockInfo
 from data.market_fetcher import fetch_stock_list
+from config.settings import MIN_LISTING_DAYS as _MIN_DAYS
 
 # ── 配置 ──
 
 ST_KEYWORDS = ("ST", "退市", "*ST", "SST", "S*ST")
 EXCLUDE_EXCHANGES = ("BJSE", "Other")
 BJ_CODE_PREFIXES = ("4", "8", "920")  # 北交所代码前缀
-MIN_LISTING_DAYS = 250
-MIN_AMOUNT = 10_000_000  # 1000万成交额（可配置）
 
 
 # ── 股票池生成 ──
@@ -89,15 +88,23 @@ def _is_st(si: StockInfo) -> bool:
 
 def _is_listed_long_enough(code: str, min_days: int) -> bool:
     """
-    通过代码前缀判断上市是否够久（近似判断，不拉K线）
+    通过代码前缀判断上市是否够久（近似判断，不拉K线）。
     新股代码规则：
       60xxxx / 00xxxx / 30xxxx — 老股
-      最近1年新增：需用代码范围 + 上市日期
-    简化版本：直接返回 True，让 batch_runner 在抓取K线后检查
+      xxx数字范围判断上市时间
+    简化版本：只排除明确的新股代码段。
     """
-    _ = code  # 保留参数签名
-    _ = min_days
-    # 简化：不在这里做精确判断，batch_runner中会检查K线数量
+    # 60xxxx: 上交所主板 — 除60xxx*系列外大多上市已久
+    # 00xxxx: 深交所主板 — 老股
+    # 30xxxx: 创业板 — 2009年后，部分较新
+    # 排除明显的新股段：
+    #   301xxx 以后段（2020年后）
+    if code.startswith("301"):
+        return False
+    # 688xxx 科创板（2019年后）
+    if code.startswith("688"):
+        # 688xxx 最早2019年，到2026年已有7年，足够250天
+        return True
     return True
 
 
