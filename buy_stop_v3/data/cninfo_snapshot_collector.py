@@ -77,11 +77,35 @@ def _calc_available_time(publish_time_str: str) -> str:
     """根据公开时间计算可用时间。
 
     规则:
-      - 交易时段 (09:30-15:00 CST) 发布: 立即可用
-      - 非交易时段发布: 当收盘后才能用
-    简化: 默认 publish_time = available_time
+      - 交易时段 (09:30-15:00 CST) 发布: 立即可用 (available_time = publish_time)
+      - 非交易时段发布（盘后/盘前/非交易日）: 推到下一交易日开盘 (date + 1 day)
+
+    Args:
+        publish_time_str: ISO datetime 如 "2026-04-30 15:30:00"
+    Returns:
+        ISO date 或 datetime
     """
-    return publish_time_str
+    if not publish_time_str:
+        return date.today().isoformat()
+
+    try:
+        dt = datetime.strptime(publish_time_str.strip(), "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return publish_time_str[:10]
+
+    hour_min = dt.hour * 100 + dt.minute  # e.g. 0930, 1500
+
+    # A 股交易时段: 09:30 - 15:00
+    TRADING_START = 930    # 09:30
+    TRADING_END = 1500     # 15:00
+
+    if TRADING_START <= hour_min < TRADING_END:
+        # 盘中发布 → 立即可用
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    else:
+        # 非交易时段 → 推到下一交易日
+        next_day = dt.date() + timedelta(days=1)
+        return next_day.isoformat()
 
 
 def _clean_title(raw: str) -> str:

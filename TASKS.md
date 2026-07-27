@@ -28,7 +28,7 @@
 ### Historical Snapshot Layer
 - [x] 4 张快照表设计（announcement/fundamental/sector/market）
 - [x] `query_*_as_of(signal_date)` 时态查询接口
-- [x] 防未来函数（available_time <= signal_date 强制过滤）
+- [ ] 防未来函数（available_time <= signal_date 强制过滤）
 - [x] CNINFO 公告快照采集器（performance_forecast / report / contract / buyback）
 - [x] No-lookahead bias 测试（5 项验证）
 - [x] 采集器 v2：自动分页 + 月度切片 + 断点续传（11 项测试通过）
