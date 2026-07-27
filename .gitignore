@@ -60,6 +60,9 @@ price_cache.json
 *.sqlite
 *.sqlite3
 
+# ── Research outputs (generated analysis) ──
+research/data/*.csv
+
 # ── Alibaba Risk Monitor: cached files ──
 alibaba_risk_monitor/news_cache.json
 alibaba_risk_monitor/docket_cache.json
