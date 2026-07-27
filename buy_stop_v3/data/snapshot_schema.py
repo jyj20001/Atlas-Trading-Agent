@@ -94,6 +94,8 @@ CREATE TABLE IF NOT EXISTS fundamental_snapshot (
     snapshot_version TEXT DEFAULT '1.0.0',
     collected_at    TEXT DEFAULT (datetime('now', 'localtime'))
 );
+CREATE UNIQUE INDEX IF NOT EXISTS idx_fund_unique
+    ON fundamental_snapshot(code, fiscal_period, source);
 CREATE INDEX IF NOT EXISTS idx_fund_available
     ON fundamental_snapshot(available_time);
 CREATE INDEX IF NOT EXISTS idx_fund_code

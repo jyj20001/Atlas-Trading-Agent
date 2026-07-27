@@ -77,7 +77,19 @@ def main():
         runner = BatchRunner(enable_fundamental=enable_fund)
         summary = runner.run(stocks)
 
-        # 3. 输出结果
+        # 3. 基本面数据源检查（结果后，用于推送提示）
+        try:
+            from data.snapshot_schema import get_table_count
+            ann_count = get_table_count("announcement_snapshot")
+            if ann_count < 50:
+                warn = ("⚠️ 当前基本面数据暂未回填完整，扫描为纯技术面（115分制），"
+                        "fundamental维度=0，不代表个股基本面无亮点")
+                logger.warning(warn)
+                summary.data_source_warning = warn
+        except Exception as e:
+            logger.debug(f"基本面数据检查跳过: {e}")
+
+        # 4. 输出结果
         logger.info(f"\n{'='*50}")
         logger.info(f"扫描结果")
         logger.info(f"{'='*50}")

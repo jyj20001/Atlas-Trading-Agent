@@ -7,144 +7,75 @@
 
 ## 当前项目状态
 
-**版本:** v3.5 Stable  
-**状态:** Production Observation Phase（生产观察阶段）  
-**观察期:** 30 个交易日（2026-07-24 起）  
-**最后更新:** 2026-07-24  
+**版本:** v1.0.0 Stable Baseline  
+**状态:** Version Freeze（版本冻结）  
+**最后更新:** 2026-07-26  
 **运行频率:** 每日收盘后（15:00 后）通过 cron 自动扫描  
 **推送方式:** 企业微信机器人 Webhook  
 
 **当前阶段规则：**
-- 原则上不新增功能
-- 只允许：Bug 修复 / 稳定性修复 / 日志优化 / 性能优化
-- 任何新功能必须等待观察期结束后由项目负责人确认
+- Buy Stop 策略核心已冻结（screener / 130 分体系 / Buy Stop 参数）
+- 允许：数据层扩展 / Bug 修复 / 稳定性优化
+- 禁止：修改策略逻辑、评分权重、交易参数
 
 ---
 
 ## 已完成的模块
 
-### ✅ Buy Stop V3.4 — 生产版
+### ✅ Buy Stop V3 筛选引擎（策略核心，已冻结）
 - **入口:** `run_scan.py`（全市场扫描）/ `run_daily.sh`（cron 包装）
 - **核心:** `core/screener.py` — StockScreener 筛选引擎（130分制）
-- **数据层:** `data/market_fetcher.py`（腾讯K线 + 新浪列表）/ `data/cninfo_fetcher.py`（巨潮资讯）
-- **HTTP:** `data/http_client.py` — curl 子进程，完全绕过 Python SSL 栈
 - **扫描引擎:** `scanner/batch_runner.py` — 异常隔离、重试、进度输出
 - **股票池:** `scanner/universe.py` — ST/北交所过滤、上市天数判断
 - **报告:** `scanner/report.py` — JSON + Markdown + CSV
 - **通知:** `utils/notifier.py` — 企业微信（A+ 级推送详情）
 - **评分:** 五维评分（技术100 + 基本面15 + 市场5 + 板块10 = 130分）
-- **日志:** `utils/logger.py` — 按日轮换，保留30天
 
 ### ✅ Breakout Stage 生命周期识别
 - BreakoutStageIdentifier（core/breakout_stage.py）
-- 四阶段: EARLY_BREAKOUT (✅) → TRENDING (⚠️) → EXTENDED (🚫) → CLIMAX (🚫)
+- 四阶段: EARLY_BREAKOUT → TRENDING → EXTENDED → CLIMAX
 
-### ✅ 市场环境评分
+### ✅ 市场环境评分 / 板块强度评分
 - MarketRegimeScorer（core/market_regime.py）
-- 沪深300 / 上证 / 创业板三大指数综合评估
-
-### ✅ 板块强度评分
 - SectorScorer（core/sector_scorer.py）
-- 覆盖 30+ A股行业板块
 
-### ✅ 基本面评分
+### ✅ 基本面评分（announcement_snapshot 数据源）
 - FundamentalScorer（core/fundamental_scorer.py）
 - 业绩预增 / 快报 / 重大合同 / 回购增持
+- **当前状态:** ✅ Production Ready
+  - 9,000+ 条公告数据（覆盖 3,500+ 只股票）
+  - 读取 `announcement_snapshot` 表，Zero Network
+  - 支持公告类型: Performance Forecast / Performance Report / Major Contract / Buyback
+- **Cron 配置:** `--fundamental` 已注入生产扫描
 
 ### ✅ 企业微信推送
 - A+ (>=105) 和 A (>=95) 级推送详情
 - 无候选时推送通知
-- 未配置 Webhook 时静默跳过
 
-### ✅ Alibaba Risk Monitor（独立项目）
-- 路径: `alibaba_risk_monitor/`
-- 功能: 法律案件 + 政策新闻 + 价格成交量异常
-- 推送: 企业微信
-- 运行: cron 定时（每 15 分钟价格监控 + 每 30 分钟综合扫描）
+### ✅ Provider Chain 数据架构
+- `data/kline_providers/` — FutuProvider / EastMoneyProvider / TencentProvider
+- 条件导入、三层 fallback
+- `data/market_fetcher.py` — 数据库优先读取，Provider 补充
 
----
+### ✅ Historical Snapshot Layer
+- `data/snapshot_schema.py` — 4 张快照表（announcement/fundamental/sector/market）
+- `data/snapshot_query.py` — `query_*_as_of(signal_date)` 时态查询接口
+- `data/cninfo_snapshot_collector.py` — CNINFO 公告采集
 
-## 暂停开发的模块
+### ✅ PortfolioEngine 组合回测
+- `backtest/portfolio_engine.py` — 时间驱动组合回测
+- `backtest/cash_manager.py` — T+1 资金管理
+- `backtest/engine_v36.py` — A 股合规回测引擎
 
-### ⏸️ 回测引擎
-- **路径:** `backtest/engine.py` + `backtest/metrics.py`
-- **状态:** 已稳定，不再继续开发
-- **原因:** 回测结果仅供参考，不能预测未来。当前 A/B/C/D 对比功能已满足需求。
-- **保留:** 保留在仓库中但不再主动迭代。如需修复 bug 可改，但不新增特性。
+### ✅ Engineering Standardization & Git v1.0.0
+- Git tag v1.0.0 已推送到 GitHub
+- GitHub: `github.com:jyj20001/Atlas-Trading-Agent.git`
 
----
-
-## 未来计划
-
-### 🔄 当前阶段：Production Observation Phase
-- **观察期:** 30 个交易日（2026-07-24 ~ 2026-09-04 约计）
-- **规则:** 原则上不新增功能，仅限 bug 修复和稳定性优化
-- **观察内容:**
-  - 每日全市场扫描稳定性
-  - 数据源可用性（腾讯/新浪/巨潮）
-  - SQLite 缓存性能
-  - 候选信号质量
-  - 企业微信推送可靠性
-  - 系统资源占用（CPU/内存/磁盘）
-
-### 🔄 工程层面（观察期结束后）
-1. **GitHub 公开（Private Repo）** — 完成工程标准化后上传
-2. **云服务器部署** — 迁移到国内云服务器（阿里云/腾讯云）
-3. **PostgreSQL 存储** — 替代 CSV/JSON 文件存储
-4. **历史信号数据库** — 建立信号数据库以便复盘分析
-5. **Web 面板（可选）** — 简单的扫描结果看板
-
-### 🔭 数据层面（中期）
-1. **更多基本面数据** — 财报数据 RPA 抓取
-2. **龙虎榜数据** — 游资/机构动向监控
-3. **北向资金数据** — 外资持股变动
-4. **融券余额数据** — 做空压力监控
-
-### 🌟 策略层面（长期 — 新项目）
-1. **多时间框架分析** — 日线 + 周线 + 60分钟联合判断
-2. **AI 辅助评分** — 用 LLM 分析新闻情绪
-3. **自动化交易** — QMT 对接
-
----
-
-## 关键设计理念
-
-### 为什么采用 Buy Stop 策略？
-
-| 原因 | 说明 |
-|------|------|
-| **趋势跟踪** | Buy Stop 是经典的趋势跟踪策略，在 A 股牛市中表现优异 |
-| **机械化** | 规则明确、可编程、无主观判断 |
-| **风险可控** | 严格的突破确认 + 止损，避免抄底摸顶 |
-| **适合自动扫描** | 可以完全自动化，每日收盘后跑一遍即可 |
-
-### 为什么采用 130 分体系？
-
-1. **多维度评估** — 单纯的技术面评分容易受波动影响，加入基本面/市场/板块后更稳定
-2. **可解释性** — 每个维度的分数都有明确含义，知道为什么评分高/低
-3. **可调整性** — 每类因子独立计算，后续可以分别验证各因子的预测能力
-4. **风控融合** — 风险标记直接融入评分，高风险项自动降分或排除
-
-### 为什么严格风控？
-
-A 股的特殊性决定了严格风控的必要性：
-
-- **连续涨停** → 高位接盘风险极高，必须排除
-- **5日涨幅过大** → 短期获利盘巨大，追涨风险极大
-- **CLIMAX 阶段** → 行情末端，随时可能崩盘
-- **T+1 限制** → 当日买入不可卖出，没有容错空间
-- **基本面差** → 可能面临黑天鹅事件（ST、退市、炸雷）
-
-**宁可错过，不可做错** — 这是 Atlas Trading Agent 的风控底线。
-
-### 为什么使用 curl 子进程？
-
-Python 的 urllib / requests 在特定网络环境下会出现 SSL 兼容性问题（证书验证失败、TLS 握手失败等），而 curl 是最稳定的 HTTP 客户端之一。使用 subprocess 调用 curl 可以：
-
-- 利用系统自带的 curl（macOS/Linux 预装）
-- 完全绕过 Python SSL 栈的兼容性问题
-- 支持 --noproxy 避免代理干扰
-- 无需安装任何第三方 HTTP 库
+### ✅ 基本面数据基础设施
+- `fundamental_snapshot`（historical.db）— 东方财富结构化财务数据
+- `data/fundamental/fundamental_collector.py` — 采集器
+- `scripts/backfill_fundamental.py` — 全量回填（支持 --resume 断点续传）
+- **已知缺口:** `query_fundamentals_as_of()` 已实现但未被任何评分子系统调用
 
 ---
 
@@ -154,106 +85,34 @@ Python 的 urllib / requests 在特定网络环境下会出现 SSL 兼容性问�
 |------|------|
 | 运行时 | Python 3.11+（标准库为主） |
 | HTTP | curl 子进程 |
-| K线数据 | 腾讯财经 API（web.ifzq.gtimg.cn） |
-| 股票列表 | 新浪财经 API |
-| 基本面数据 | 巨潮资讯网（www.cninfo.com.cn） |
+| K线数据库 | SQLite（日均缓存 4467 只） |
+| Provider 链 | Futu OpenAPI → 东方财富 → 腾讯（三层 fallback） |
+| 历史快照 | historical.db（4 张时态表） |
 | 通知 | 企业微信机器人 Webhook |
 | 部署 | macOS / Linux + crontab |
-| 版本控制 | Git (GitHub Private Repo) |
 
 ---
 
 ## 已知的局限性
 
-1. **数据源依赖** — 腾讯/新浪/巨潮 API 可能随时变更，需监控
-2. **回测模拟性** — 回测采用收盘价模拟，无法完全模拟真实成交情况
-3. **A 股 T+1** — 当日买入不可卖出，突破买入可能存在次日低开风险
-4. **无盘中和分时数据** — 仅使用日K线，无法分析分时走势
-5. **北交所不支持** — 故意排除，因流动性不足
-6. **仅做扫描** — 不自动下单，需要人工确认
-7. **无多时间框架** — 仅使用日线，没有周线/60分钟线联合判断
+1. **东方财富 IP 限流** — A 股全量回填需分批（每批 ~100 只），非一次性完成
+2. **Futu OpenD 每日配额限制** — 历史 K 线回填受 100 次/日 限制
+3. **数据源依赖** — 腾讯/新浪/巨潮 API 可能随时变更
+4. **A 股 T+1** — 当日买入不可卖出
+5. **北交所不支持** — 故意排除
+6. **仅做扫描，不自动下单**
 
 ---
 
-## 项目文件结构
+## 项目健康度
 
-```
-Atlas-Trading-Agent/
-├── buy_stop_v3/
-│   ├── config/          # 配置管理
-│   ├── core/            # 筛选引擎 + 五维评分 + 突破生命周期 + 板块/市场/基本面评分
-│   ├── data/            # 行情获取 + 基本面数据 + HTTP客户端 + 数据类型
-│   ├── scanner/         # 股票池 + 批量扫描 + 报告生成
-│   ├── backtest/        # 回测引擎（暂停开发）
-│   ├── utils/           # 日志 + 通知 + 工具
-│   ├── run_scan.py      # 扫描入口
-│   ├── run_daily.sh     # cron 启动脚本
-│   └── main.py          # 占位（未启用）
-├── alibaba_risk_monitor/
-│   ├── alibaba_risk_monitor.py
-│   ├── legal_monitor.py
-│   └── config.py
-├── tests/               # 测试套件（53 项测试）
-├── docs/                # 文档
-├── scripts/             # 辅助脚本
-├── AGENT.md             # AI Agent 人格文件
-├── MEMORY.md            # 项目状态记录
-├── TASKS.md             # 任务列表
-├── CHANGELOG.md         # 版本历史
-├── README.md            # 项目说明
-├── requirements.txt     # 依赖
-└── .gitignore
-```
+| 指标 | 状态 |
+|------|:----:|
+| 测试套件 | ~70 项 |
+| 核心模块测试 | ✅ 全部通过 |
+| 生产运行 | ✅ 稳定（异常隔离） |
+| 企业微信推送 | ✅ 配置即用 |
+| cron 定时任务 | ✅ 正常运行 |
+| SQLite 缓存 | ✅ 4467 只全缓存 |
+| 文档 | ⚠️ AGENT/MEMORY/README/CHANGELOG 齐全，工程 doc 需补充 |
 
-## 工程管理方式
-
-| 方面 | 规范 |
-|------|------|
-| **版本控制** | Git (GitHub Private Repo)，`main` + `develop` 双分支 |
-| **Commit 规范** | `<type>: <描述>` — feat / fix / refactor / docs / test |
-| **Tag 规范** | `v<主>.<次>-<功能>` — 如 `v3.5-data-layer` |
-| **测试要求** | 每次修改需运行相关测试，报告通过 |
-| **文档同步** | 重大版本需同步 README / MEMORY / TASKS / CHANGELOG |
-| **禁止提交** | `*.db`, `logs/`, `output/`, `.env`, 密钥 |
-| **开发流程** | 见 `docs/development_workflow.md` |
-
----
-
-## Project Principles
-
-### Future Leak Prevention
-
-| 属性 | 值 |
-|------|------|
-| **Status** | Permanent |
-| **Version** | v3.5 Stable |
-| **Established** | 2026-07-24 |
-
-**规则描述：**
-
-所有历史回测必须采用历史快照。禁止使用实时数据计算历史日期。
-
-**禁止行为：**
-
-- ❌ 使用实时公告数据计算历史信号
-- ❌ 使用实时财报数据计算历史基本面评分
-- ❌ 使用实时龙虎榜数据判断历史资金流向
-- ❌ 使用实时指数成分股计算历史板块强度
-- ❌ 任何历史时点尚未公开的数据用于该时点
-
-**未来开发 Backtest 的前置条件：**
-
-当重新开发 Backtest 模块时，必须按以下顺序进行：
-
-1. **首先完成：Historical Snapshot Layer**
-   - 为基本面数据建立历史快照数据库
-   - 每条公告必须记录发布日期
-   - 查询时必须按 signal_date 过滤（announcement_date <= signal_date）
-2. **然后才允许开发回测**
-   - 任何回测结果若使用了未来数据，直接判定无效
-   - 回测报告必须声明数据来源和日期范围
-
-**例外：**
-
-- 实时扫描（Production Observation Phase 每日运行）使用实时数据是正常的，因为这是"当天的判断"
-- 本规则只约束历史回测/历史验证

@@ -2,183 +2,119 @@
 
 > 当前状态追踪。已完成 ✅、进行中 🔄、未来计划 📋、已暂停 ⏸️、已归档 🗄️。
 
-**Version:** v3.5 Stable
-**Stage:** Production Observation Phase
-**Goal:** 30 Trading Days Observation
-**Strategy:** Frozen
+**Version:** v1.0.0 Stable Baseline
+**Stage:** Version Freeze — Published
+**Strategy:** Frozen — Buy Stop core sealed
 
 ---
 
 ## ✅ 已完成
 
-### Buy Stop V3.4 Production
-- [x] 核心 Buy Stop 筛选引擎（130分五维评分体系）
-- [x] 行情数据获取（腾讯K线 + 新浪股票列表）
-- [x] 基本面数据获取（巨潮资讯公告）
+### Buy Stop V3 筛选引擎（策略核心，已冻结）
+- [x] 核心 Buy Stop 筛选引擎（130 分五维评分体系）
+- [x] 行情数据获取（Provider Chain: Futu → 东方财富 → 腾讯）
+- [x] 基本面公告数据获取（巨潮资讯 CNINFO）
 - [x] 突破生命周期识别（EARLY/TRENDING/EXTENDED/CLIMAX）
 - [x] 市场环境评分（三大指数加权）
-- [x] 板块强度评分（30+行业板块超额收益）
+- [x] 板块强度评分（30+ 行业板块超额收益）
 - [x] 全市场批量扫描引擎（异常隔离）
-- [x] 预过滤模块（减少无效请求）
+- [x] 预过滤模块
 - [x] 报告生成（JSON + Markdown + CSV）
 - [x] 企业微信推送（A+ 级通知）
-- [x] 日志系统（按日轮换，保留30天）
-- [x] 53 项测试覆盖全部核心模块
-- [x] curl 子进程 HTTP 客户端（规避 SSL 问题）
+- [x] 日志系统（按日轮换，保留 30 天）
+- [x] SQLite 市场数据库（4467 只全缓存）
+- [x] curl 子进程 HTTP 客户端
 
-### Alibaba Risk Monitor V3.0
-- [x] 法律案件监控（PACER docket）
-- [x] 政策新闻监控（关键词过滤，只推送高影响事件）
-- [x] 价格/成交量异常监控
-- [x] 企业微信推送告警
-- [x] cron 定时任务（价格 15min + 综合 30min）
+### Historical Snapshot Layer
+- [x] 4 张快照表设计（announcement/fundamental/sector/market）
+- [x] `query_*_as_of(signal_date)` 时态查询接口
+- [x] 防未来函数（available_time <= signal_date 强制过滤）
+- [x] CNINFO 公告快照采集器（performance_forecast / report / contract / buyback）
+- [x] No-lookahead bias 测试（5 项验证）
+- [x] 采集器 v2：自动分页 + 月度切片 + 断点续传（11 项测试通过）
 
-### 数据层升级 (v3.5)
-- [x] SQLite 市场数据库（database.py）
-  - [x] 自动建表 / 缓存写入 / 增量更新
-  - [x] 4467 只全市场缓存完成
-  - [x] 缓存命中后 1000 只仅 10.4 秒
-- [x] 信号历史数据库（signal_database.py）
-  - [x] 候选信号自动存储
-  - [x] 按日期/代码查询
-  - [x] 价格字段预留（5/10/20日后）
-- [x] 双数据源路由（主板→腾讯主域，科创板→腾讯备用域）
-- [x] WAF 检测和非 JSON 响应安全处理
+### Provider Chain 数据架构
+- [x] `data/kline_providers/` 三层架构
+- [x] FutuProvider（OpenD 连接，全量历史 2006~2026）
+- [x] EastMoneyProvider（HTTP API，全量历史，含 IP 限流处理）
+- [x] TencentProvider（640 根 fallback）
+- [x] `data/kline_normalizer.py` 统一输出格式
+- [x] 数据库优先读取逻辑（`fetch_klines` → DB → Provider fallback）
 
-### 工程标准化
-- [x] 项目标准化目录结构
-- [x] README.md（完整版）
-- [x] AGENT.md（AI Agent 人格文件）
-- [x] MEMORY.md（项目状态恢复）
-- [x] TASKS.md（任务列表）
-- [x] CHANGELOG.md（版本历史）
-- [x] LICENSE（MIT）
-- [x] requirements.txt（依赖管理）
-- [x] .gitignore（敏感文件排除）
-- [x] 工程体检报告（docs/code_audit.md）
-- [x] 长期开发规范（docs/development_workflow.md）
+### PortfolioEngine 组合回测
+- [x] 时间驱动组合回测
+- [x] T+1 资金管理（CashManager）
+- [x] 20% / 5 只仓位限制
+- [x] A 股合规回测引擎（EngineV36）
+- [x] 组合级指标（复利年化收益/回撤/夏普/Profit Factor）
+- [x] 全部测试通过（7/7, 38 assertions）
 
----
+### 基本面数据基础设施
+- [x] `fundamental_snapshot` 表（historical.db）— 东财结构化财务数据
+- [x] `data/fundamental/fundamental_collector.py` — 东财数据源采集器
+- [x] `scripts/backfill_fundamental.py` — 回填脚本（断点续传）
+- [x] `scripts/update_fundamental_daily.py` — 增量更新
+- [x] 唯一索引 `(code, fiscal_period, source)` — 防止重复
+- [x] 供应商标记 `source='eastmoney'`
+- [x] `query_fundamentals_as_of()` 查询接口
 
-## 🔄 进行中
+### CNINFO Announcement Layer
+- [x] `announcement_snapshot` 表已回填 9,000+ 条 / 3,500+ 只
+- [x] FundamentalScorer 正式数据源（Zero Network）
+- [x] Cron `--fundamental` 已注入生产扫描
 
-### 生产观察 (Production Observation Phase)
-- [ ] **30 个交易日观察期** — 2026-07-24 起
-  - [ ] 每日全市场扫描
-  - [ ] 监控数据源稳定性
-  - [ ] 监控 SQLite 缓存性能
-  - [ ] 记录候选信号
-  - [ ] 观察期内原则上不开发新功能
-  - [ ] 只允许 bug 修复和稳定性优化
+### Production Deployment
+- [x] Cron 每日全市场扫描（15:40）— `--fundamental` 启用
+- [x] Cron 盘前扫描（09:00）— `--fundamental` 启用
+- [x] 企业微信推送（Webhook 环境变量注入，不硬编码）
+- [x] Final Acceptance Test（7 项全部通过）
+- [x] Version Freeze — v1.0.0 Published
+- [x] GitHub Release v1.0.0
 
----
-
-## 🗄️ Future Roadmap（暂不开发）
-
-以下功能已确认价值，但当前处于 Production Observation Phase，暂不开发。
-待观察期结束且获项目负责人批准后方可启动。
-
-### Market Score → Market Gate（暂不开发）
-- 现状：Market Score 是 0~5 分的评分维度，实际权重低
-- 设想：将 Market Score 升级为 Market Gate——熊市硬性开关，不满足条件直接不让任何 Buy Stop 信号通过
-- 暂不开发原因：当前熊市判断逻辑简单（MA20/Ma50），需要更多真实数据验证后再决定是否做硬性 gate
-- 约束：
-  - 不能降低现有 130 分体系兼容性
-  - Gate 开关必须是可配置的
-  - Gate 参数必须经过回测验证
-
-### Sector Stage（暂不开发）
-- 现状：Sector Score 是 0~10 分的评分维度，仅计算 5 日超额收益
-- 设想：为板块增加阶段识别——板块处于早期/扩散/高潮/衰退阶段，结合个股阶段联合判断
-- 暂不开发原因：需要先建立板块指数历史数据库，当前腾讯 API 仅提供单只股票 K 线，板块指数获取尚未稳定
-- 约束：
-  - 不能增加额外的 API 依赖
-  - 板块历史数据必须全部缓存到 SQLite
-
-### Historical Fundamental Snapshot（Backtest 专用，暂不开发）
-- 现状：回测中的基本面评分每次都实时查询巨潮资讯（未来函数风险）
-- 设想：建立历史基本面快照数据库，按日期存储每条公告的快照，回测时按当日可获取的数据查询
-- 暂不开发原因：当前回测模块已暂停，基本面数据量大且需要历史日期重建，开发成本高
-- 约束：
-  - 每条公告必须带发布日期
-  - 查询时必须按 signal_date 过滤：announcement_date <= signal_date
-  - 不能有 Look-ahead Bias
-
-### Historical Snapshot Layer（高优先级，Backtest 前置条件）
-| 属性 | 值 |
-|------|------|
-| **Priority** | High |
-| **Dependency** | 必须先于任何 Backtest 开发 |
-| **Status** | Pending（等待 Production Observation Phase 结束后评估） |
-
-**目的：**
-彻底避免历史回测中的 Look-ahead Bias（未来函数）。
-
-**包含模块：**
-
-| 子模块 | 用途 | 数据量预估 |
-|--------|------|:---------:|
-| □ Historical Announcement Snapshot | 公告历史快照（业绩预告/快报/合同/回购） | 每年 ~10 万条 |
-| □ Historical Fundamental Snapshot | 基本面指标历史（营收/利润/ROE 等） | 每年 ~5 万条 |
-| □ Historical Sector Snapshot | 板块指数成分股历史（用于板块强度评分回测） | 每年 ~3 万条 |
-| □ Historical Market Snapshot | 市场环境历史（三大指数 K 线历史快照） | 每年 ~750 根 |
-
-**开发顺序（必须遵守）：**
-
-1. 设计数据表结构（SQLite，带 publish_date 字段）
-2. 写数据抓取脚本（按日期爬取历史公告/指数数据）
-3. 写数据验证脚本（随机抽样验证历史日期数据正确性）
-4. 写回测查询接口（query_as_of(date) 返回截至该日期的数据快照）
-5. 集成到 BacktestEngine
-
-**验证标准：**
-- 对于任意历史日期 T，`query_as_of(T)` 返回的数据必须与 T 日实际可获取的数据一致
-- 随机抽取 10 个历史日期，人工验证数据准确性
-- 所有验证通过后，才能用于实际回测
+### Engineering Standardization
+- [x] GitHub 推送（`github.com:jyj20001/Atlas-Trading-Agent.git`）
+- [x] README / AGENT / MEMORY / TASKS / CHANGELOG
+- [x] .gitignore（覆盖 *.db / *.csv / __pycache__ / .env）
 
 ---
 
-## ⏸️ 暂停开发
+## 🔄 正在进行
 
-### 回测扩展
-- [x] A/B/C/D 四种配置对比回测
-- [x] 交易成本计算（佣金+印花税+滑点）
-- [x] 止损/止盈/超时三种退出
-- [x] 评分分组统计
-- [ ] ~~多周期回测~~ — 已暂停，当前回测功能已满足需求
-- [ ] ~~回测结果可视化~~ — 已暂停，价值有限
-- [ ] ~~机器学习参数优化~~ — 已暂停，过拟合风险高
+### Futu 全历史 K 线后台补库（持续）
+- [ ] 每日配额 ~96 只，预计 ~46 天完成全量 4,467 只
+- [ ] 已完成 96 只全量（4800 根/只）
 
-**暂停原因：** 回测仅供参考，不能预测未来。当前功能已能验证策略有效性。过度回测可能导致过拟合。
+### Fundamental Snapshot 数据续采
+- [ ] 后台持续回填（东方财富 API 分批限流）
+- [ ] `query_fundamentals_as_of()` 已实现但未被评分模块调用（v1.1 规划）
 
-### Buy Stop 规则调整
-- [ ] ~~新增评分维度~~ — 已暂停，130 分体系已足够
-- [ ] ~~参数优化~~ — 已暂停，当前参数经过验证
-
-**暂停原因：** Buy Stop V3.5 已进入 Production Observation Phase。任何策略参数修改需要 30 交易日观察数据支持。
+### Live Validation（持续运行）
+- [ ] 连续运行 2~4 周，监控评分稳定性
+- [ ] 每日扫描日志自动归档
+- [ ] 企业微信推送持续验证
 
 ---
 
-## 📊 项目健康度
+## 🗄️ v1.1 Feature Planning（暂停开发）
+
+### 待基本面数据链路修复后
+- 将 `fundamental_snapshot` 营收/净利/ROE 数据接入评分（替代或补充现有 15 分）
+- `Market Score → Market Gate` 熊市开关
+- `Sector Stage` 板块阶段识别
+- 多时间框架分析（日线 + 周线 + 60 分钟）
+- AI 辅助评分
+- 云服务器部署
+
+---
+
+## 项目健康度
 
 | 指标 | 状态 |
-|------|------|
-| 核心模块测试覆盖率 | ✅ >80% |
-| 生产运行稳定性 | ✅ 稳定（异常隔离） |
-| 数据源可用性 | ✅ 腾讯/新浪/巨潮全部可用 |
-| 企业微信推送 | ✅ 配置即用 |
-| cron 定时任务 | ✅ 正常运行 |
-| 日志系统 | ✅ 按日轮换 |
-| SQLite 缓存 | ✅ 4467 只全缓存，0.01秒/只 |
-| 代码风格 | ⚠️ 部分文件需 ruff 格式化 |
-| 文档完整性 | ✅ AGENT + MEMORY + README + CHANGELOG + DEVELOPMENT_WORKFLOW 齐全 |
-
-### 长期维护任务
-
-| 任务 | 频率 | 说明 |
-|------|:----:|------|
-| 运行所有测试 | 每次修改 | `python tests/test_*.py` 确保全部通过 |
-| 同步文档 | 每个版本 | MEMORY / TASKS / CHANGELOG / README 同步更新 |
-| 创建版本 Tag | 重大功能 | `git tag -a vX.Y-<name> -m "<描述>"` |
-| 检查 .gitignore | 新增文件类型 | 确保数据库/日志/输出不会被提交 |
-| 检查 CHANGELOG | 每个版本 | 新增/Fix/Optimize 分类清晰 |
+|------|:----:|
+| 核心模块测试 | ~70 项，全部通过 |
+| 生产运行 | ✅ 稳定（异常隔离） |
+| 数据源可用性 | ✅ Provider 链多重 fallback |
+| 企业微信推送 | ✅ 配置即用（环境变量注入） |
+| Cron 定时任务 | ✅ `--fundamental` 启用 |
+| SQLite 缓存 | ✅ 4467 只全缓存 |
+| Git | ✅ v1.0.0 Published |

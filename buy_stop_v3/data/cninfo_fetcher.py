@@ -80,10 +80,20 @@ def _request(url: str, data: Optional[dict] = None, method: str = "POST",
 
 def _fulltext_search(searchkey: str, page: int = 1, page_size: int = 20,
                      start_date: str = "", end_date: str = "",
-                     stock: str = "") -> Optional[list[dict]]:
+                     stock: str = "") -> Optional[dict]:
     """
-    巨潮资讯全文搜索接口
+    巨潮资讯全文搜索接口（返回完整 API 响应，含 announcements、totalAnnouncement、totalpages）
+
     GET http://www.cninfo.com.cn/new/fulltextSearch/full
+
+    返回:
+        {
+            "announcements": [...],    # 公告列表
+            "totalAnnouncement": N,    # 总记录数
+            "totalpages": N,           # 总页数
+            "hasMore": bool,           # 是否有更多
+        }
+        或 None（请求失败）
     """
     params = {
         "searchkey": searchkey,
@@ -101,11 +111,15 @@ def _fulltext_search(searchkey: str, page: int = 1, page_size: int = 20,
     url = f"{CNINFO['BASE_URL']}/fulltextSearch/full?{urlencode(params)}"
     result = _request(url, method="GET")
 
-    if result and result.get("announcements"):
-        return result["announcements"]
-    if result and result.get("totalAnnouncement", 0) > 0 and not result.get("announcements"):
-        logger.warning(f"搜索 '{searchkey}' 返回了 {result['totalAnnouncement']} 条但数据为空")
-    return None
+    if result is None:
+        return None
+
+    return {
+        "announcements": result.get("announcements", []),
+        "totalAnnouncement": result.get("totalAnnouncement", 0),
+        "totalpages": result.get("totalpages", 0) or 0,
+        "hasMore": result.get("hasMore", False),
+    }
 
 
 def _parse_forecast_from_title(title: str) -> dict:
@@ -159,7 +173,7 @@ def search_performance_forecasts(start_date: Optional[str] = None,
 
     logger.info(f"搜索业绩预告: {start_date} ~ {end_date}, page={page}")
 
-    items = _fulltext_search(
+    resp = _fulltext_search(
         searchkey="业绩预告",
         page=page,
         page_size=min(page_size, 15),  # 巨潮返回较大结果时可能截断，限制单页大小
@@ -167,6 +181,7 @@ def search_performance_forecasts(start_date: Optional[str] = None,
         end_date=end_date,
     )
 
+    items = resp.get("announcements", []) if resp else []
     if not items:
         logger.info("无业绩预告结果")
         return []
@@ -212,7 +227,7 @@ def search_performance_reports(start_date: Optional[str] = None,
 
     logger.info(f"搜索业绩快报: {start_date} ~ {end_date}, page={page}")
 
-    items = _fulltext_search(
+    resp = _fulltext_search(
         searchkey="业绩快报",
         page=page,
         page_size=page_size,
@@ -220,6 +235,7 @@ def search_performance_reports(start_date: Optional[str] = None,
         end_date=end_date,
     )
 
+    items = resp.get("announcements", []) if resp else []
     if not items:
         logger.info("无业绩快报结果")
         return []
@@ -263,7 +279,7 @@ def search_stock_announcements(stock_code: str,
     searchkey = f"{keyword} {stock_code}" if keyword else stock_code
     logger.info(f"搜索个股公告: {stock_code} keyword='{keyword}'")
 
-    items = _fulltext_search(
+    resp = _fulltext_search(
         searchkey=searchkey,
         page=page,
         page_size=20,
@@ -271,6 +287,7 @@ def search_stock_announcements(stock_code: str,
         end_date=end_date,
     )
 
+    items = resp.get("announcements", []) if resp else []
     if not items:
         return []
 
@@ -303,11 +320,12 @@ def get_stock_org_id(stock_code: str) -> Optional[str]:
     if cached:
         return cached
 
-    items = _fulltext_search(
+    resp = _fulltext_search(
         searchkey=stock_code,
         page=1,
         page_size=1,
     )
+    items = resp.get("announcements", []) if resp else []
     if items and len(items) > 0:
         org_id = items[0].get("orgId", "")
         if org_id:

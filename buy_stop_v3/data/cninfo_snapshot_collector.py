@@ -1,4 +1,4 @@
-"""Atlas Trading Agent — CNINFO 公告快照采集器
+"""Atlas Trading Agent — CNINFO 公告快照采集器 (v2: Production Ready)
 
 每日运行一次，从巨潮资讯网获取最新公告数据，
 写入 historical.db 的 announcement_snapshot 表。
@@ -8,6 +8,13 @@
   - performance_report    业绩快报
   - major_contract        重大合同/中标
   - buyback               回购/增持
+
+v2 改进:
+  - 自动分页（pageNum 循环直到最后一页）
+  - 按月日期切片（避免单次查询数据量过大）
+  - 断点续传（记录已完成的月份+关键词，中断后可恢复）
+  - 保持 INSERT OR IGNORE 去重机制
+  - 保持 available_time 逻辑不变
 
 约束:
   - 不可重复写入相同公告（UNIQUE(code, publish_time, announce_type)）
@@ -25,7 +32,10 @@ from data.snapshot_query import query_announcements_as_of
 from utils.logger import logger
 
 # ── 默认时间范围 ──
-_DEFAULT_LOOKBACK_DAYS = 7  # 每次采集过去 7 天（增量）
+_DEFAULT_LOOKBACK_DAYS = 7          # 每次增量采集过去 7 天
+_PAGE_SIZE = 50                     # 每页记录数（CNINFO API 上限约 50）
+_MONTHLY_SLICE = True               # 按月切片采集
+_PAGE_REQUEST_INTERVAL = 0.5        # 页间请求间隔（秒）
 
 # ── 关键词→announce_type 映射 ──
 _KEYWORD_MAP = {
@@ -34,6 +44,19 @@ _KEYWORD_MAP = {
     "回购": "buyback",
     "增持": "buyback",
 }
+
+# ── 采集顺序（需要回填的关键词列表） ──
+_COLLECTION_KEYWORDS = [
+    ("业绩预告", "performance_forecast"),
+    ("业绩快报", "performance_report"),
+    ("重大合同", "major_contract"),
+    ("中标", "major_contract"),
+    ("回购", "buyback"),
+    ("增持", "buyback"),
+]
+
+# ── 断点续传 tracker name ──
+_TRACKER_NAME = "cninfo_announcement"
 
 
 def _ts_to_iso(ts_ms: int) -> str:
@@ -66,6 +89,33 @@ def _clean_title(raw: str) -> str:
     return raw.replace("<em>", "").replace("</em>", "")
 
 
+def _split_into_months(start_date: str, end_date: str) -> list[tuple[str, str]]:
+    """将日期范围按月切割，返回 [(month_start, month_end), ...] 列表。
+
+    例如: 2024-01-15 ~ 2024-03-10 →
+          [("2024-01-15", "2024-01-31"), ("2024-02-01", "2024-02-29"), ("2024-03-01", "2024-03-10")]
+    """
+    from calendar import monthrange
+    start = date.fromisoformat(start_date)
+    end = date.fromisoformat(end_date)
+    slices = []
+
+    cursor = start
+    while cursor <= end:
+        # 当月最后一天
+        _, last_day = monthrange(cursor.year, cursor.month)
+        month_end = date(cursor.year, cursor.month, last_day)
+        slice_end = min(month_end, end)
+        slices.append((cursor.isoformat(), slice_end.isoformat()))
+        # 下个月第一天
+        if slice_end.month == 12:
+            cursor = date(slice_end.year + 1, 1, 1)
+        else:
+            cursor = date(slice_end.year, slice_end.month + 1, 1)
+
+    return slices
+
+
 # ══════════════════════════════════════════════════════════════
 # 公告采集器
 # ══════════════════════════════════════════════════════════════
@@ -93,6 +143,11 @@ class CNInfoSnapshotCollector:
             start_date: YYYY-MM-DD, 默认7天前
             end_date: YYYY-MM-DD, 默认今天
 
+        行为:
+          - 如果日期范围 > 31 天，自动按月度切片采集
+          - 每个切片内，6 个关键词分别搜索，自动分页
+          - 支持断点续传：中断后重跑会自动跳过已完成的切片
+
         返回:
             {"stocks": N, "inserted": N, "skipped_duplicates": N,
              "failures": N, "detail": {type: N, ...}}
@@ -104,14 +159,42 @@ class CNInfoSnapshotCollector:
 
         logger.info(f"CNINFO 快照采集: {start_date} ~ {end_date}")
 
-        self._collect_forecasts(start_date, end_date)
-        self._collect_reports(start_date, end_date)
-        self._collect_keyword("重大合同", "major_contract", start_date, end_date)
-        self._collect_keyword("中标", "major_contract", start_date, end_date)
-        self._collect_keyword("回购", "buyback", start_date, end_date)
-        self._collect_keyword("增持", "buyback", start_date, end_date)
+        # 1) 按月切片
+        months = _split_into_months(start_date, end_date)
+        logger.info(f"  月度切片: {len(months)} 个 ({months[0][0]} ~ {months[-1][1]})")
 
-        # 记录采集元数据
+        # 2) 加载断点续传状态
+        resume_state = self._load_resume_state()
+
+        # 3) 逐月采集
+        for ym_start, ym_end in months:
+            month_key = f"{ym_start[:7]}"  # "2024-01"
+
+            # 断点续传：检查是否已完成此月
+            if resume_state and self._is_month_done(resume_state, month_key):
+                logger.info(f"  跳过已完成月份: {month_key}")
+                # 仍然统计该月已有数据量（用于汇总）
+                continue
+
+            logger.info(f"  ── 采集月份: {month_key} ({ym_start} ~ {ym_end}) ──")
+
+            # 逐关键词采集
+            for keyword, announce_type in _COLLECTION_KEYWORDS:
+                # 断点续传：检查此月此关键词是否已完成
+                kw_key = f"{month_key}/{keyword}"
+                if resume_state and kw_key in resume_state.get("done", []):
+                    continue
+
+                self._collect_keyword_paginated(keyword, announce_type,
+                                                 ym_start, ym_end)
+
+                # 记录此关键词完成
+                self._update_resume_state(month_key, keyword)
+
+            # 记录此月完成
+            self._mark_month_done(month_key)
+
+        # 4) 记录采集元数据
         self._record_tracking(start_date, end_date)
 
         result = {
@@ -124,34 +207,96 @@ class CNInfoSnapshotCollector:
         logger.info(f"采集完成: {result}")
         return result
 
-    # ── 业绩预告 ──
+    # ── 带分页的通用采集 ──
 
-    def _collect_forecasts(self, start_date: str, end_date: str):
-        """采集业绩预告"""
+    def _collect_keyword_paginated(self, keyword: str, announce_type: str,
+                                    start_date: str, end_date: str):
+        """带自动分页的单个关键词采集。
+
+        自动循环 pageNum 直到捕获全部页面。
+        """
         from data.cninfo_fetcher import _fulltext_search
-        items = _fulltext_search("业绩预告", page=1, page_size=50,
-                                  start_date=start_date, end_date=end_date)
-        if not items:
-            logger.info("业绩预告: 无数据")
-            return
 
+        page = 1
+        total_pages = 0  # 0 表示未知，第一页响应后会更新
         count = 0
-        for item in items:
-            ts = item.get("announcementTime", 0)
-            pt = _ts_to_iso(ts)
-            if not pt:
-                continue
-            title = _clean_title(item.get("announcementTitle", ""))
+        retries = 0
 
+        while True:
+            resp = _fulltext_search(
+                keyword, page=page, page_size=_PAGE_SIZE,
+                start_date=start_date, end_date=end_date,
+            )
+
+            if resp is None:
+                # 网络失败，重试
+                retries += 1
+                if retries >= 3:
+                    logger.warning(f"[{keyword}] 连续失败3次，跳过该关键词")
+                    self.stats["failures"] += 1
+                    break
+                wait = 2 ** retries  # 指数退避: 2s, 4s, 8s
+                logger.warning(f"[{keyword}] 第{page}页请求失败，{wait}s后重试")
+                time.sleep(wait)
+                continue
+
+            retries = 0  # 成功后重置重试计数
+
+            items = resp.get("announcements", [])
+            if not items:
+                break  # 无更多数据
+
+            total_pages = resp.get("totalpages", 0) or 1
+
+            # 处理本页公告
+            for item in items:
+                row = self._build_row(item, keyword, announce_type)
+                if row and self._insert_one(row):
+                    count += 1
+                    self.stats["stocks"].add(row[0])
+
+            # 判断是否还有下一页
+            if page >= total_pages:
+                break
+
+            page += 1
+            time.sleep(_PAGE_REQUEST_INTERVAL)
+
+        self.stats["detail"][keyword] = self.stats["detail"].get(keyword, 0) + count
+        if count:
+            logger.info(f"  [{keyword}] {start_date}~{end_date}: 采集 {count} 条 ({page}/{total_pages}页)")
+
+    # ── 行构建 ──
+
+    def _build_row(self, item: dict, keyword: str,
+                   announce_type: str) -> Optional[tuple]:
+        """根据关键词类型构建数据库行。
+
+        参数:
+            item: CNINFO API 返回的公告条目
+            keyword: 搜索关键词
+            announce_type: 公告类型
+
+        返回:
+            tuple 或 None（时间戳无效时）
+        """
+        ts = item.get("announcementTime", 0)
+        pt = _ts_to_iso(ts)
+        if not pt:
+            return None
+
+        title = _clean_title(item.get("announcementTitle", ""))
+        kw = keyword if keyword not in ("业绩预告", "业绩快报") else ""
+
+        if announce_type == "performance_forecast":
             from data.cninfo_fetcher import _parse_forecast_from_title
             parsed = _parse_forecast_from_title(title)
-
-            row = (
+            return (
                 item.get("secCode", ""),
                 item.get("secName", ""),
                 pt,
                 _calc_available_time(pt),
-                "performance_forecast",
+                announce_type,
                 parsed.get("forecast_type", "业绩预告"),
                 "业绩预告",
                 parsed.get("net_profit_lower"),
@@ -159,91 +304,35 @@ class CNInfoSnapshotCollector:
                 parsed.get("change_pct_lower"),
                 parsed.get("change_pct_upper"),
                 title,
-                "",
+                kw,
             )
-            if self._insert_one(row):
-                count += 1
-                self.stats["stocks"].add(row[0])
-
-        self.stats["detail"]["forecasts"] = count
-        logger.info(f"业绩预告: 采集 {count} 条")
-
-    # ── 业绩快报 ──
-
-    def _collect_reports(self, start_date: str, end_date: str):
-        """采集业绩快报"""
-        from data.cninfo_fetcher import _fulltext_search
-        items = _fulltext_search("业绩快报", page=1, page_size=50,
-                                  start_date=start_date, end_date=end_date)
-        if not items:
-            logger.info("业绩快报: 无数据")
-            return
-
-        count = 0
-        for item in items:
-            ts = item.get("announcementTime", 0)
-            pt = _ts_to_iso(ts)
-            if not pt:
-                continue
-            title = _clean_title(item.get("announcementTitle", ""))
-
-            row = (
-                item.get("secCode", ""),
-                item.get("secName", ""),
-                pt,
-                _calc_available_time(pt),
-                "performance_report",
-                "业绩快报",
-                "业绩快报",
-                None, None, None, None,
-                title,
-                "",
-            )
-            if self._insert_one(row):
-                count += 1
-                self.stats["stocks"].add(row[0])
-
-        self.stats["detail"]["reports"] = count
-        logger.info(f"业绩快报: 采集 {count} 条")
-
-    # ── 关键词公告（重大合同/中标/回购/增持）──
-
-    def _collect_keyword(self, keyword: str, announce_type: str,
-                         start_date: str, end_date: str):
-        """采集指定关键词的公告"""
-        from data.cninfo_fetcher import _fulltext_search
-        items = _fulltext_search(keyword, page=1, page_size=50,
-                                  start_date=start_date, end_date=end_date)
-        if not items:
-            logger.info(f"[{keyword}]: 无数据")
-            return
-
-        count = 0
-        for item in items:
-            ts = item.get("announcementTime", 0)
-            pt = _ts_to_iso(ts)
-            if not pt:
-                continue
-            title = _clean_title(item.get("announcementTitle", ""))
-
-            row = (
+        elif announce_type == "performance_report":
+            return (
                 item.get("secCode", ""),
                 item.get("secName", ""),
                 pt,
                 _calc_available_time(pt),
                 announce_type,
-                "",
-                "",
+                "业绩快报",
+                "业绩快报",
                 None, None, None, None,
                 title,
-                keyword,
+                kw,
             )
-            if self._insert_one(row):
-                count += 1
-                self.stats["stocks"].add(row[0])
-
-        self.stats["detail"][keyword] = count
-        logger.info(f"[{keyword}]: 采集 {count} 条")
+        else:
+            # major_contract / buyback
+            kw = keyword  # 使用原始搜索关键词
+            return (
+                item.get("secCode", ""),
+                item.get("secName", ""),
+                pt,
+                _calc_available_time(pt),
+                announce_type,
+                "", "",
+                None, None, None, None,
+                title,
+                kw,
+            )
 
     # ── 写入 ──
 
@@ -273,10 +362,108 @@ class CNInfoSnapshotCollector:
             self.stats["failures"] += 1
             return False
 
+    # ── 断点续传状态管理 ──
+
+    def _load_resume_state(self) -> Optional[dict]:
+        """从 collection_tracking 加载断点续传状态"""
+        try:
+            cur = self.conn.execute(
+                "SELECT stats_json FROM collection_tracking "
+                "WHERE collector_name = ? ORDER BY last_run_at DESC LIMIT 1",
+                (_TRACKER_NAME,)
+            )
+            row = cur.fetchone()
+            if row:
+                state = json.loads(row[0])
+                if "resume" in state:
+                    return state["resume"]
+        except Exception:
+            pass
+        return None
+
+    def _is_month_done(self, state: dict, month_key: str) -> bool:
+        """检查某个月份是否已完成"""
+        return month_key in state.get("months_done", [])
+
+    def _update_resume_state(self, month_key: str, keyword: str):
+        """更新本月的关键词完成状态到 collection_tracking"""
+        kw_key = f"{month_key}/{keyword}"
+        try:
+            cur = self.conn.execute(
+                "SELECT stats_json FROM collection_tracking "
+                "WHERE collector_name = ? ORDER BY last_run_at DESC LIMIT 1",
+                (_TRACKER_NAME,)
+            )
+            row = cur.fetchone()
+            if row:
+                state = json.loads(row[0])
+            else:
+                state = {}
+
+            resume = state.get("resume", {})
+            done = resume.get("done", [])
+            if kw_key not in done:
+                done.append(kw_key)
+            resume["done"] = done
+            state["resume"] = resume
+
+            self.conn.execute(
+                "INSERT OR REPLACE INTO collection_tracking "
+                "(collector_name, last_run_at, last_success_at, status, stats_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    _TRACKER_NAME,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    None,
+                    "in_progress",
+                    json.dumps(state, ensure_ascii=False),
+                )
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.warning(f"更新续传状态失败: {e}")
+
+    def _mark_month_done(self, month_key: str):
+        """标记某个月份为已完成"""
+        try:
+            cur = self.conn.execute(
+                "SELECT stats_json FROM collection_tracking "
+                "WHERE collector_name = ? ORDER BY last_run_at DESC LIMIT 1",
+                (_TRACKER_NAME,)
+            )
+            row = cur.fetchone()
+            if row:
+                state = json.loads(row[0])
+            else:
+                state = {}
+
+            resume = state.get("resume", {})
+            months_done = resume.get("months_done", [])
+            if month_key not in months_done:
+                months_done.append(month_key)
+            resume["months_done"] = months_done
+            state["resume"] = resume
+
+            self.conn.execute(
+                "INSERT OR REPLACE INTO collection_tracking "
+                "(collector_name, last_run_at, last_success_at, status, stats_json) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (
+                    _TRACKER_NAME,
+                    datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                    None,
+                    "in_progress",
+                    json.dumps(state, ensure_ascii=False),
+                )
+            )
+            self.conn.commit()
+        except Exception as e:
+            logger.warning(f"标记月份完成失败: {e}")
+
     # ── 采集元数据 ──
 
     def _record_tracking(self, start_date: str, end_date: str):
-        """记录本次采集结果"""
+        """记录本次采集结果（最终状态）"""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         try:
             self.conn.execute(
@@ -284,7 +471,7 @@ class CNInfoSnapshotCollector:
                 "(collector_name, last_run_at, last_success_at, status, stats_json) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (
-                    "cninfo_announcement",
+                    _TRACKER_NAME,
                     now,
                     now if self.stats["failures"] == 0 else None,
                     "ok" if self.stats["failures"] == 0 else "partial",
@@ -310,9 +497,16 @@ class CNInfoSnapshotCollector:
 
 def run_collector(start_date: Optional[str] = None,
                   end_date: Optional[str] = None) -> dict:
-    """便捷入口"""
+    """便捷入口 — 全量回填或增量更新"""
     collector = CNInfoSnapshotCollector()
     return collector.collect_all(start_date, end_date)
+
+
+def run_incremental(days: int = _DEFAULT_LOOKBACK_DAYS) -> dict:
+    """增量更新 — 采集最近 N 天的公告"""
+    end = date.today().isoformat()
+    start = (date.today() - timedelta(days=days)).isoformat()
+    return run_collector(start, end)
 
 
 def get_last_collection_time() -> Optional[str]:
@@ -320,8 +514,9 @@ def get_last_collection_time() -> Optional[str]:
     conn = get_conn()
     cur = conn.execute(
         "SELECT last_success_at FROM collection_tracking "
-        "WHERE collector_name = 'cninfo_announcement' "
-        "AND status = 'ok' ORDER BY last_run_at DESC LIMIT 1"
+        "WHERE collector_name = ? "
+        "AND status = 'ok' ORDER BY last_run_at DESC LIMIT 1",
+        (_TRACKER_NAME,)
     )
     row = cur.fetchone()
     return row[0] if row else None
@@ -333,10 +528,10 @@ def get_today_collection_stats() -> dict:
     conn = get_conn()
     cur = conn.execute(
         "SELECT stats_json FROM collection_tracking "
-        "WHERE collector_name = 'cninfo_announcement' "
+        "WHERE collector_name = ? "
         "AND date(last_run_at) = ? "
         "ORDER BY last_run_at DESC LIMIT 1",
-        (today,)
+        (_TRACKER_NAME, today)
     )
     row = cur.fetchone()
     if row:

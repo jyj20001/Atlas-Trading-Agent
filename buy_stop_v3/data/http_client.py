@@ -77,7 +77,7 @@ def get_json(url: str, params: Optional[dict] = None,
                 "--noproxy", "*",
                 "-H", "User-Agent: Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "-H", "Referer: https://quote.eastmoney.com/",
+                "-H", "Referer: https://vip.stock.finance.sina.com.cn/",
                 full_url,
             ]
             result = subprocess.run(

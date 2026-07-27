@@ -139,6 +139,11 @@ def _build_no_candidate_msg(summary) -> str:
     lines = []
     anomaly = _is_data_anomaly(summary)
     prefix = "⚠️" if anomaly else "📊"
+
+    # 数据源完整性提示
+    if summary.data_source_warning:
+        lines.append(f"{summary.data_source_warning}\n")
+
     lines.append(f"{prefix} Buy Stop 每日扫描报告\n")
     lines.append(_observation_header())
     lines.append(f"**日期：**{date.today().isoformat()}")
@@ -159,6 +164,8 @@ def _build_no_candidate_msg(summary) -> str:
 def _build_candidate_msg(summary) -> str:
     """构建有候选时的消息（仅A级及以上）"""
     lines = []
+    if summary.data_source_warning:
+        lines.append(f"{summary.data_source_warning}\n")
     lines.append(f"🔥 Buy Stop 每日扫描报告\n")
     lines.append(_observation_header())
     lines.append(f"**日期：**{date.today().isoformat()}")

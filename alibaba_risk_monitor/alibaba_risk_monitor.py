@@ -97,7 +97,7 @@ def send_wechat(text: str) -> bool:
         "msgtype": "markdown",
         "markdown": {"content": text}
     }
-    data = json.dumps(payload).encode("utf-8")
+    data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     req = urllib.request.Request(
         WECHAT_WEBHOOK_URL, data=data,
         headers={"Content-Type": "application/json"}, method="POST"

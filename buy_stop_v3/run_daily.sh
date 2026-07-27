@@ -16,6 +16,17 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# 企业微信 Webhook（优先使用环境变量，未设置则跳过推送）
+if [ -z "${WECOM_WEBHOOK_URL:-}" ]; then
+    # 尝试从 .env 文件加载
+    if [ -f "${SCRIPT_DIR}/.env" ]; then
+        set -a; source "${SCRIPT_DIR}/.env"; set +a
+    fi
+fi
+if [ -z "${WECOM_WEBHOOK_URL:-}" ]; then
+    echo "[WARNING] WECOM_WEBHOOK_URL 未设置，推送功能禁用"
+fi
+
 # 日志
 TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
 LOG_DIR="${SCRIPT_DIR}/logs"
@@ -27,8 +38,8 @@ if [ -f "${SCRIPT_DIR}/venv/bin/activate" ]; then
     source "${SCRIPT_DIR}/venv/bin/activate"
 fi
 
-# 参数
-ARGS="${*:---stocks 100}"
+# 参数（追加 --fundamental 启用基本面评分）
+ARGS="${*:---stocks 100} --fundamental"
 
 echo "============================================" | tee -a "$LOG_FILE"
 echo "Buy Stop V3 每日扫描" | tee -a "$LOG_FILE"

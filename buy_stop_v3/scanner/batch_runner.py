@@ -86,6 +86,7 @@ class ScanSummary:
         self.eliminated = []
         self.start_time = 0.0
         self.end_time = 0.0
+        self.data_source_warning = ""  # 数据源完整性提示
 
     @property
     def elapsed(self) -> float:

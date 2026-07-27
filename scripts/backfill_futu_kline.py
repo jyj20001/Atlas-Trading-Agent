@@ -74,6 +74,8 @@ def main():
 
     ctx = _get_ctx()
     logging.info("OpenD 连接成功")
+    logging.info("等待 10s 让频率限制清空...")
+    time.sleep(10)
 
     total = len(all_codes)
     success = 0
